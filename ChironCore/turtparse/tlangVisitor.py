@@ -1,4 +1,4 @@
-# Generated from tlang.g4 by ANTLR 4.13.2
+# Generated from turtparse/tlang.g4 by ANTLR 4.13.2
 from antlr4 import *
 if "." in __name__:
     from .tlangParser import tlangParser
@@ -79,6 +79,31 @@ class tlangVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by tlangParser#procedureDeclaration.
+    def visitProcedureDeclaration(self, ctx:tlangParser.ProcedureDeclarationContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by tlangParser#paramList.
+    def visitParamList(self, ctx:tlangParser.ParamListContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by tlangParser#procedureCall.
+    def visitProcedureCall(self, ctx:tlangParser.ProcedureCallContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by tlangParser#argList.
+    def visitArgList(self, ctx:tlangParser.ArgListContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by tlangParser#procedureCallExpr.
+    def visitProcedureCallExpr(self, ctx:tlangParser.ProcedureCallExprContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by tlangParser#unaryExpr.
     def visitUnaryExpr(self, ctx:tlangParser.UnaryExprContext):
         return self.visitChildren(ctx)
@@ -136,6 +161,16 @@ class tlangVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by tlangParser#value.
     def visitValue(self, ctx:tlangParser.ValueContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by tlangParser#returnCommand.
+    def visitReturnCommand(self, ctx:tlangParser.ReturnCommandContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by tlangParser#printCommand.
+    def visitPrintCommand(self, ctx:tlangParser.PrintCommandContext):
         return self.visitChildren(ctx)
 
 

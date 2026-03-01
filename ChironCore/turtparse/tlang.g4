@@ -1,4 +1,3 @@
-
 grammar tlang;
 
 start : instruction_list EOF
@@ -17,6 +16,10 @@ instruction : assignment
 	    | penCommand
 	    | gotoCommand
 	    | pauseCommand
+	    | procedureDeclaration
+		| procedureCall
+        | returnCommand
+        | printCommand    
 	    ;
 
 conditional : ifConditional | ifElseConditional ;
@@ -39,12 +42,21 @@ penCommand : 'penup' | 'pendown' ;
 
 pauseCommand : 'pause' ;
 
+procedureDeclaration : 'to' NAME '(' paramList? ')' '[' instruction_list ']' ;
+
+paramList : VAR (',' VAR)* ;
+
+procedureCall : NAME '(' argList? ')' ;
+
+argList : expression (',' expression)* ;
+
 expression : 
              unaryArithOp expression               #unaryExpr
            | expression multiplicative expression  #mulExpr
 		   | expression additive expression        #addExpr
 		   | value                                 #valueExpr
 		   | '(' expression ')'                    #parenExpr
+           | procedureCall						   #procedureCallExpr
  	   ;
 
 multiplicative : MUL | DIV;
@@ -96,3 +108,10 @@ VAR  : ':'[a-zA-Z_] [a-zA-Z0-9]* ;
 NAME : [a-zA-Z]+     ;
 
 Whitespace: [ \t\n\r]+ -> skip;
+
+COMMENT : '//' ~[\r\n]* -> skip; 
+MULTILINE_COMMENT : '/*' .*? '*/' -> skip; 
+
+returnCommand : 'return' expression? ;
+
+printCommand : 'print' expression ;

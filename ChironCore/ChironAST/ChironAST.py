@@ -74,6 +74,22 @@ class PauseCommand(Instruction):
     def __str__(self):
         return "pause"
 
+class PrintCommand(Instruction):
+    def __init__(self, expr):
+        self.expr = expr
+
+    def __str__(self):
+        return f"print {self.expr}"
+
+class ReturnCommand(Instruction):
+    def __init__(self, expr=None):
+        self.expr = expr
+
+    def __str__(self):
+        if self.expr is None:
+            return "return"
+        return "return " + str(self.expr)
+
 class Expression(AST):
     pass
 
@@ -233,3 +249,37 @@ class Var(Value):
 
     def __str__(self):
         return self.varname
+    
+
+# Procedure / call instruction nodes
+class ProcedureDeclaration(Instruction):
+    def __init__(self, name, params, body):
+        # params: list of VAR token strings (e.g. [':x', ':y'])
+        # body: list of AST Instruction nodes (e.g. [AssignmentCommand(...), GotoCommand(...), ...])
+        self.name = name
+        self.params = params if params is not None else []
+        self.body = body if body is not None else []
+
+    def __str__(self):
+        params_s = ", ".join(self.params)
+        return "to " + self.name + "(" + params_s + ") ... end"
+
+
+class ProcedureCall(Instruction):
+    def __init__(self, name, args):
+        # args: list of Expression AST nodes
+        self.name = name
+        self.args = args if args is not None else []
+
+    def __str__(self):
+        args_s = ", ".join([str(a) for a in self.args])
+        return "call " + self.name + "(" + args_s + ")"
+
+class ProcedureCallExpr(Expression):
+    def __init__(self, name, args):
+        self.name = name
+        self.args = args if args is not None else []
+
+    def __str__(self):
+        args_s = ", ".join([str(a) for a in self.args])
+        return self.name + "(" + args_s + ")"

@@ -172,3 +172,56 @@ class astGenPass(tlangVisitor):
 
     def visitPenCommand(self, ctx:tlangParser.PenCommandContext):
         return [(ChironAST.PenCommand(ctx.getText()), 1)]
+
+    def visitPrintCommand(self, ctx: tlangParser.PrintCommandContext):
+        expr = self.visit(ctx.expression())
+        return [(ChironAST.PrintCommand(expr), 1)]
+
+    def visitReturnCommand(self, ctx: tlangParser.ReturnCommandContext):
+        expr = None
+        if ctx.expression():
+            expr = self.visit(ctx.expression())
+        return [(ChironAST.ReturnCommand(expr), 1)]
+
+    # helper : convert ir-list ([(node, offset), ...])
+    # into a plain list of AST Instruction nodes for storing in ProcedureDeclaration.body
+    def _flatten_instr_nodes(self, ilist_ctx):
+        nodes = []
+        if ilist_ctx is None:
+            return nodes
+        for instr_ctx in ilist_ctx.instruction():
+            vis = self.visit(instr_ctx)
+            if vis is None:
+                continue
+            for item in vis:
+                if isinstance(item, tuple) and len(item) >= 1:
+                    nodes.append(item[0])
+                else:
+                    nodes.append(item)
+        return nodes
+
+    def visitProcedureDeclaration(self, ctx: tlangParser.ProcedureDeclarationContext):
+        name = ctx.NAME().getText()
+        params = []
+        if ctx.paramList():
+            for v in ctx.paramList().VAR():
+                params.append(v.getText())
+
+        body_instrs = self._flatten_instr_nodes(ctx.instruction_list())
+        return [(ChironAST.ProcedureDeclaration(name, params, body_instrs), 1)]
+
+    def visitProcedureCall(self, ctx: tlangParser.ProcedureCallContext):
+        name = ctx.NAME().getText()
+        args = []
+        if ctx.argList():
+            for expr in ctx.argList().expression():
+                args.append(self.visit(expr))
+        return [(ChironAST.ProcedureCall(name, args), 1)]
+
+    def visitProcedureCallExpr(self, ctx: tlangParser.ProcedureCallExprContext):
+        name = ctx.procedureCall().NAME().getText()
+        args = []
+        if ctx.procedureCall().argList():
+            for expr in ctx.procedureCall().argList().expression():
+                args.append(self.visit(expr))
+        return ChironAST.ProcedureCallExpr(name, args)
