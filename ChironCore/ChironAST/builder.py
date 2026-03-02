@@ -194,10 +194,9 @@ class astGenPass(tlangVisitor):
             if vis is None:
                 continue
             for item in vis:
-                if isinstance(item, tuple) and len(item) >= 1:
-                    nodes.append(item[0])
-                else:
-                    nodes.append(item)
+                # preserve the full tuple (node, offset) so procedure bodies
+                # keep relative-jump information. Interpreter will handle tuples.
+                nodes.append(item)
         return nodes
 
     def visitProcedureDeclaration(self, ctx: tlangParser.ProcedureDeclarationContext):
@@ -217,6 +216,10 @@ class astGenPass(tlangVisitor):
             for expr in ctx.argList().expression():
                 args.append(self.visit(expr))
         return [(ChironAST.ProcedureCall(name, args), 1)]
+
+    def visitAssertCommand(self, ctx: tlangParser.AssertCommandContext):
+        cond = self.visit(ctx.condition())
+        return [(ChironAST.AssertCommand(cond), 1)]
 
     def visitProcedureCallExpr(self, ctx: tlangParser.ProcedureCallExprContext):
         name = ctx.procedureCall().NAME().getText()

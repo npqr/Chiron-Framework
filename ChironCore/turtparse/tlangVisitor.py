@@ -29,6 +29,11 @@ class tlangVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by tlangParser#assertCommand.
+    def visitAssertCommand(self, ctx:tlangParser.AssertCommandContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by tlangParser#conditional.
     def visitConditional(self, ctx:tlangParser.ConditionalContext):
         return self.visitChildren(ctx)

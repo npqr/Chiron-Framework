@@ -18,9 +18,12 @@ instruction : assignment
 	    | pauseCommand
 	    | procedureDeclaration
 		| procedureCall
+		| assertCommand
         | returnCommand
         | printCommand    
 	    ;
+
+assertCommand : 'assert' condition ;
 
 conditional : ifConditional | ifElseConditional ;
 
@@ -115,3 +118,4 @@ MULTILINE_COMMENT : '/*' .*? '*/' -> skip;
 returnCommand : 'return' expression? ;
 
 printCommand : 'print' expression ;
+

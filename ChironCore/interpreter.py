@@ -59,6 +59,9 @@ class Interpreter:
     def handlePauseCommand(self, stmt, tgt):
         raise NotImplementedError('No-Ops are not handled!')
 
+    def handleAssertCommand(self, stmt, tgt):
+        raise NotImplementedError('Asserts are not handled!')
+
     def sanityCheck(self, irInstr):
         stmt, tgt = irInstr
         # if not a condition command, rel. jump can't be anything but 1
@@ -121,6 +124,8 @@ class ConcreteInterpreter(Interpreter):
             ntgt = self.handleProcedureCall(stmt, tgt)
         elif isinstance(stmt, ChironAST.PrintCommand):
             ntgt = self.handlePrintCommand(stmt, tgt)
+        elif isinstance(stmt, ChironAST.AssertCommand):
+            ntgt = self.handleAssertCommand(stmt, tgt)
         else:
             raise NotImplementedError("Unknown instruction: %s, %s."%(type(stmt), stmt))
 
@@ -135,7 +140,7 @@ class ConcreteInterpreter(Interpreter):
             return True
         else:
             return False
-    
+
     def initProgramContext(self, params):
         # This is the starting of the interpreter at setup stage.
         if self.args is not None and self.args.hooks:
@@ -144,7 +149,7 @@ class ConcreteInterpreter(Interpreter):
         for key,val in params.items():
             var = key.replace(":","")
             exec("setattr(self.prg,\"%s\",%s)" % (var, val))
-    
+
     # modified Assignment handler to evaluate RHS expr
     def handleAssignment(self, stmt, tgt):
         print("  Assignment Statement")
@@ -193,41 +198,96 @@ class ConcreteInterpreter(Interpreter):
                 arg_vals.append(self._eval_in_frame(a, frame))
             return self._call_procedure_and_get_return(expr.name, arg_vals)
 
-        expr_str = str(expr).strip().replace(":", "frame.")
-        local = {"frame": frame}
-        try:
-            exec("__val = %s" % expr_str, {}, local)
-            return local["__val"]
-        except Exception as e:
-            raise RuntimeError("Expression evaluation failed: %s (%s)" % (expr_str, e))
+        # recursive expr evaluating instead of exec'ing raw strings
+        def eval_expr(e):
+            if isinstance(e, ChironAST.Num):
+                return e.val
+
+            if isinstance(e, ChironAST.Var):
+                name = e.varname.replace(":", "")
+                if hasattr(frame, name):
+                    return getattr(frame, name)
+                # fall back to global frame if available
+                if self.call_stack and hasattr(self.call_stack[0], name):
+                    return getattr(self.call_stack[0], name)
+                raise NameError("Undefined variable: %s" % e.varname)
+
+            if isinstance(e, ChironAST.ProcedureCallExpr):
+                arg_vals = [self._eval_in_frame(a, frame) for a in e.args]
+                return self._call_procedure_and_get_return(e.name, arg_vals)
+
+            if isinstance(e, ChironAST.UMinus):
+                return -eval_expr(e.expr)
+
+            if isinstance(e, ChironAST.Sum):
+                return eval_expr(e.lexpr) + eval_expr(e.rexpr)
+            if isinstance(e, ChironAST.Diff):
+                return eval_expr(e.lexpr) - eval_expr(e.rexpr)
+            if isinstance(e, ChironAST.Mult):
+                return eval_expr(e.lexpr) * eval_expr(e.rexpr)
+            if isinstance(e, ChironAST.Div):
+                return eval_expr(e.lexpr) / eval_expr(e.rexpr)
+
+            if isinstance(e, ChironAST.AND):
+                return bool(eval_expr(e.lexpr)) and bool(eval_expr(e.rexpr))
+            if isinstance(e, ChironAST.OR):
+                return bool(eval_expr(e.lexpr)) or bool(eval_expr(e.rexpr))
+            if isinstance(e, ChironAST.NOT):
+                return not bool(eval_expr(e.expr))
+
+            if isinstance(e, ChironAST.LT):
+                return eval_expr(e.lexpr) < eval_expr(e.rexpr)
+            if isinstance(e, ChironAST.GT):
+                return eval_expr(e.lexpr) > eval_expr(e.rexpr)
+            if isinstance(e, ChironAST.LTE):
+                return eval_expr(e.lexpr) <= eval_expr(e.rexpr)
+            if isinstance(e, ChironAST.GTE):
+                return eval_expr(e.lexpr) >= eval_expr(e.rexpr)
+            if isinstance(e, ChironAST.EQ):
+                return eval_expr(e.lexpr) == eval_expr(e.rexpr)
+            if isinstance(e, ChironAST.NEQ):
+                return eval_expr(e.lexpr) != eval_expr(e.rexpr)
+
+            raise RuntimeError("Expression evaluation failed: Unsupported expression type %s" % type(e))
+
+        return eval_expr(expr)
 
     def _execute_ast_instr(self, instr):
-        if isinstance(instr, ChironAST.AssignmentCommand):
-            return self.handleAssignment(instr, 1)
-        if isinstance(instr, ChironAST.ConditionCommand):
-            return self.handleCondition(instr, 1)
-        if isinstance(instr, ChironAST.MoveCommand):
-            return self.handleMove(instr, 1)
-        if isinstance(instr, ChironAST.PenCommand):
-            return self.handlePen(instr, 1)
-        if isinstance(instr, ChironAST.GotoCommand):
-            return self.handleGotoCommand(instr, 1)
-        if isinstance(instr, ChironAST.NoOpCommand):
-            return self.handleNoOpCommand(instr, 1)
-        if isinstance(instr, ChironAST.PauseCommand):
-            return self.handlePauseCommand(instr, 1)
-        if isinstance(instr, ChironAST.ProcedureCall): 
-            return self.handleProcedureCall(instr, 1)       # do we need to add handler for procedureCallExpr?
-        if isinstance(instr, ChironAST.ReturnCommand):
-            if instr.expr is None:
+        # instr may be either an AST node, or a (node, offset) tuple coming
+        # from flattened procedure bodies. Normalize to (stmt, tgt).
+        if isinstance(instr, tuple) and len(instr) >= 1:
+            stmt, tgt = instr[0], instr[1] if len(instr) > 1 else 1
+        else:
+            stmt, tgt = instr, 1
+
+        if isinstance(stmt, ChironAST.AssignmentCommand):
+            return self.handleAssignment(stmt, tgt)
+        if isinstance(stmt, ChironAST.ConditionCommand):
+            return self.handleCondition(stmt, tgt)
+        if isinstance(stmt, ChironAST.MoveCommand):
+            return self.handleMove(stmt, tgt)
+        if isinstance(stmt, ChironAST.PenCommand):
+            return self.handlePen(stmt, tgt)
+        if isinstance(stmt, ChironAST.GotoCommand):
+            return self.handleGotoCommand(stmt, tgt)
+        if isinstance(stmt, ChironAST.NoOpCommand):
+            return self.handleNoOpCommand(stmt, tgt)
+        if isinstance(stmt, ChironAST.PauseCommand):
+            return self.handlePauseCommand(stmt, tgt)
+        if isinstance(stmt, ChironAST.ProcedureCall):
+            return self.handleProcedureCall(stmt, tgt)
+        if isinstance(stmt, ChironAST.ReturnCommand):
+            if stmt.expr is None:
                 val = None
             else:
-                val = self._eval_in_frame(instr.expr, self.prg)
+                val = self._eval_in_frame(stmt.expr, self.prg)
             raise ProcedureReturn(val)
-        if isinstance(instr, ChironAST.PrintCommand):
-            return self.handlePrintCommand(instr, 1)
+        if isinstance(stmt, ChironAST.PrintCommand):
+            return self.handlePrintCommand(stmt, tgt)
+        if isinstance(stmt, ChironAST.AssertCommand):
+            return self.handleAssertCommand(stmt, tgt)
         raise NotImplementedError(
-            "Procedure body contains unsupported instruction: %s" % type(instr)
+            "Procedure body contains unsupported instruction: %s" % type(stmt)
         )
 
     def handlePrintCommand(self, stmt, tgt):
@@ -259,13 +319,19 @@ class ConcreteInterpreter(Interpreter):
         self.prg = new_frame
         ret_val = None
         try:
-            for instr in proc.body:
+            pc = 0
+            # proc.body now contains (node, offset) tuples from the builder
+            while pc < len(proc.body):
+                item = proc.body[pc]
+                if isinstance(item, tuple):
+                    self.sanityCheck(item)
                 try:
-                    self._execute_ast_instr(instr)
+                    ntgt = self._execute_ast_instr(item)
                 except ProcedureReturn as r:
                     ret_val = r.value
                     # stop executing body on return
                     break
+                pc += ntgt
         finally:
             self.call_stack.pop()
             self.prg = prev_prg
@@ -277,4 +343,11 @@ class ConcreteInterpreter(Interpreter):
         caller_frame = self.call_stack[-1]
         arg_vals = [self._eval_in_frame(a, caller_frame) for a in stmt.args]
         _ = self._call_procedure_and_get_return(stmt.name, arg_vals)
+        return 1
+
+    def handleAssertCommand(self, stmt, tgt):
+        # evaluate the assert condition in current frame; if false, raise AssertionError
+        cond_val = self._eval_in_frame(stmt.cond, self.call_stack[-1])
+        if not bool(cond_val):
+            raise AssertionError("Assertion failed: %s" % (stmt.cond,))
         return 1

@@ -1,3 +1,5 @@
+// Simple Function Declaration and Calls
+
 to fun(:x, :y) [
 	goto(:x, :y)
 	pendown
@@ -21,13 +23,14 @@ fun(:a, :b)
 goto(100, 100)
 :b = add(:a, :b)
 
-print :a
 :a = add(67, 42)
-print :a
+assert(:a == 109)
 
 fun(:a, :b)
 
-// TODO: add support for this
-// :a = add(5, 6) * add(7, 8)
+// RHS evaluation in assignment
+
+:a = add(5, 6) * add(7, 8)
+assert(:a == 11 * 15)
 
 goto(:a, :b)
