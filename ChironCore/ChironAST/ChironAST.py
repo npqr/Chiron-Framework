@@ -34,7 +34,7 @@ class AssertCommand(Instruction):
         self.cond = condition
 
     def __str__(self):
-        return self.cond.__str__()
+        return "assert " + self.cond.__str__()
 
 class MoveCommand(Instruction):
     def __init__(self, motion, expr):
@@ -262,7 +262,19 @@ class ProcedureDeclaration(Instruction):
 
     def __str__(self):
         params_s = ", ".join(self.params)
-        return "to " + self.name + "(" + params_s + ") ... end"
+        header = f"to {self.name}({params_s})"
+        if not self.body:
+            body_s = "    pass"
+        else:
+            lines = []
+            for idx, item in enumerate(self.body):
+                if isinstance(item, tuple) and len(item) == 2:
+                    stmt, tgt = item
+                    lines.append("\t[SL" + str(idx) + "] " + str(stmt) + " [[" + str(tgt) + "]]")
+                else:
+                    lines.append("\t[SL" + str(idx) + "] " + str(item))
+            body_s = "\n".join(lines)
+        return header + "\n" + body_s + "\n\tend"
 
 
 class ProcedureCall(Instruction):
@@ -273,7 +285,7 @@ class ProcedureCall(Instruction):
 
     def __str__(self):
         args_s = ", ".join([str(a) for a in self.args])
-        return "call " + self.name + "(" + args_s + ")"
+        return "call @" + self.name + "(" + args_s + ")"
 
 class ProcedureCallExpr(Expression):
     def __init__(self, name, args):
@@ -282,4 +294,4 @@ class ProcedureCallExpr(Expression):
 
     def __str__(self):
         args_s = ", ".join([str(a) for a in self.args])
-        return self.name + "(" + args_s + ")"
+        return "call @" + self.name + "(" + args_s + ")"

@@ -187,6 +187,9 @@ class ConcreteInterpreter(Interpreter):
 
     def handleProcedureDeclaration(self, stmt, tgt):
         print(" Procedure Declaration")
+        # disallow redeclaration of existing procedures/variables in global frame
+        if hasattr(self.prg, stmt.name):
+            raise NameError("Name conflict: %s is already defined in global scope" % stmt.name)
         setattr(self.prg, stmt.name, stmt)
         return 1
 

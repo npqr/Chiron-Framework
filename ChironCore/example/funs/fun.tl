@@ -26,9 +26,18 @@ goto(100, 100)
 :a = add(67, 42)
 assert(:a == 109)
 
+/* function redefintion not allowed
+
+to add(:a, :b) [
+	:a = :a * :b
+	return :a
+]
+
+*/
+
 fun(:a, :b)
 
-// RHS evaluation in assignment
+/* RHS evaluation in assignment */
 
 :a = add(5, 6) * add(7, 8)
 assert(:a == 11 * 15)
