@@ -45,12 +45,14 @@ class astGenPass(tlangVisitor):
 
 
     def visitIfConditional(self, ctx:tlangParser.IfConditionalContext):
-        condObj = ChironAST.ConditionCommand(self.visit(ctx.condition()))
+        cond_ctx = ctx.condition() if ctx.condition() is not None else ctx.expression()
+        condObj = ChironAST.ConditionCommand(self.visit(cond_ctx))
         thenInstrList = self.visit(ctx.strict_ilist())
         return [(condObj, len(thenInstrList) + 1)] + thenInstrList
 
     def visitIfElseConditional(self, ctx:tlangParser.IfElseConditionalContext):
-        condObj = ChironAST.ConditionCommand(self.visit(ctx.condition()))
+        cond_ctx = ctx.condition() if ctx.condition() is not None else ctx.expression()
+        condObj = ChironAST.ConditionCommand(self.visit(cond_ctx))
         thenInstrList = self.visit(ctx.strict_ilist(0))
         elseInstrList = self.visit(ctx.strict_ilist(1))
         jumpOverElseBlock = [(ChironAST.ConditionCommand(ChironAST.BoolFalse()), len(elseInstrList) + 1)]
@@ -218,7 +220,9 @@ class astGenPass(tlangVisitor):
         return [(ChironAST.ProcedureCall(name, args), 1)]
 
     def visitAssertCommand(self, ctx: tlangParser.AssertCommandContext):
-        cond = self.visit(ctx.condition())
+        # assert can accept either a condition or an expression (grammar)
+        test_ctx = ctx.condition() if ctx.condition() is not None else ctx.expression()
+        cond = self.visit(test_ctx)
         return [(ChironAST.AssertCommand(cond), 1)]
 
     def visitProcedureCallExpr(self, ctx: tlangParser.ProcedureCallExprContext):

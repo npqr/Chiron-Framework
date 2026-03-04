@@ -23,13 +23,13 @@ instruction : assignment
         | printCommand    
 	    ;
 
-assertCommand : 'assert' condition ;
+assertCommand : 'assert' (condition | expression) ;
 
 conditional : ifConditional | ifElseConditional ;
 
-ifConditional : 'if' condition '[' strict_ilist ']' ;
+ifConditional : 'if' (condition | expression) '[' strict_ilist ']' ;
 
-ifElseConditional : 'if' condition '[' strict_ilist ']' 'else' '[' strict_ilist ']' ;
+ifElseConditional : 'if' (condition | expression) '[' strict_ilist ']' 'else' '[' strict_ilist ']' ;
 
 loop : 'repeat' value '[' strict_ilist ']' ;
 
@@ -58,8 +58,8 @@ expression :
            | expression multiplicative expression  #mulExpr
 		   | expression additive expression        #addExpr
 		   | value                                 #valueExpr
-		   | '(' expression ')'                    #parenExpr
            | procedureCall						   #procedureCallExpr
+		   | '(' expression ')'                    #parenExpr
  	   ;
 
 multiplicative : MUL | DIV;
@@ -115,7 +115,7 @@ Whitespace: [ \t\n\r]+ -> skip;
 COMMENT : '//' ~[\r\n]* -> skip; 
 MULTILINE_COMMENT : '/*' .*? '*/' -> skip; 
 
-returnCommand : 'return' expression? ;
+returnCommand : 'return' | 'return ' expression ;
 
 printCommand : 'print' expression ;
 

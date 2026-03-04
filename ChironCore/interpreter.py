@@ -161,8 +161,7 @@ class ConcreteInterpreter(Interpreter):
 
     def handleCondition(self, stmt, tgt):
         print("  Branch Instruction")
-        condstr = addContext(stmt)
-        exec("self.cond_eval = %s" % (condstr))
+        self.cond_eval = self._eval_in_frame(stmt.cond, self.prg)
         return 1 if self.cond_eval else tgt
 
     def handleMove(self, stmt, tgt):
@@ -191,14 +190,8 @@ class ConcreteInterpreter(Interpreter):
         setattr(self.prg, stmt.name, stmt)
         return 1
 
+    # recursive expr evaluating instead of exec'ing raw strings
     def _eval_in_frame(self, expr, frame):
-        if isinstance(expr, ChironAST.ProcedureCallExpr):
-            arg_vals = []
-            for a in expr.args:
-                arg_vals.append(self._eval_in_frame(a, frame))
-            return self._call_procedure_and_get_return(expr.name, arg_vals)
-
-        # recursive expr evaluating instead of exec'ing raw strings
         def eval_expr(e):
             if isinstance(e, ChironAST.Num):
                 return e.val
