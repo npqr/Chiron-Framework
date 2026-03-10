@@ -115,7 +115,6 @@ Whitespace: [ \t\n\r]+ -> skip;
 COMMENT : '//' ~[\r\n]* -> skip; 
 MULTILINE_COMMENT : '/*' .*? '*/' -> skip; 
 
-returnCommand : 'return' | 'return ' expression ;
+returnCommand : 'return ' ('void' | expression) ;
 
 printCommand : 'print' expression ;
-

@@ -1,3 +1,5 @@
+// Using function calls inside control structures
+
 :arr0 = 3
 :arr1 = 7
 :arr2 = 12

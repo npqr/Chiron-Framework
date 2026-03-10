@@ -1,13 +1,15 @@
 // Simple Function Declaration and Calls
 
 to fun(:x, :y) [
-	goto(:x, :y)
-	pendown
-	forward 50
-	penup
-	:x = :x * 2
-	:y = :y + :x
-	return
+	repeat 5 [
+		goto(:x, :y)
+		pendown
+		forward 50
+		penup
+		:x = :x * 2
+		:y = :y + :x
+	]
+	return void
 ]
 
 to add(:a, :b) [
@@ -15,8 +17,8 @@ to add(:a, :b) [
 	return :a
 ]
 
-:a = 30
-:b = 40
+:a = 3
+:b = 4
 
 fun(:a, :b)
 
@@ -26,18 +28,9 @@ goto(100, 100)
 :a = add(67, 42)
 assert(:a == 109)
 
-/* function redefintion not allowed
-
-to add(:a, :b) [
-	:a = :a * :b
-	return :a
-]
-
-*/
-
 fun(:a, :b)
 
-/* RHS evaluation in assignment */
+// RHS evaluation in assignment
 
 :a = add(5, 6) * add(7, 8)
 assert(:a == 11 * 15)

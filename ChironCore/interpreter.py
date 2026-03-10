@@ -243,6 +243,9 @@ class ConcreteInterpreter(Interpreter):
                 return eval_expr(e.lexpr) == eval_expr(e.rexpr)
             if isinstance(e, ChironAST.NEQ):
                 return eval_expr(e.lexpr) != eval_expr(e.rexpr)
+            
+            if isinstance(e, ChironAST.BoolFalse):
+                return False
 
             raise RuntimeError("Expression evaluation failed: Unsupported expression type %s" % type(e))
 

@@ -37,7 +37,7 @@ def serializedATN():
         130,1,0,0,0,22,134,1,0,0,0,24,137,1,0,0,0,26,139,1,0,0,0,28,141,
         1,0,0,0,30,143,1,0,0,0,32,154,1,0,0,0,34,162,1,0,0,0,36,169,1,0,
         0,0,38,187,1,0,0,0,40,202,1,0,0,0,42,204,1,0,0,0,44,206,1,0,0,0,
-        46,220,1,0,0,0,48,231,1,0,0,0,50,233,1,0,0,0,52,235,1,0,0,0,54,240,
+        46,220,1,0,0,0,48,231,1,0,0,0,50,233,1,0,0,0,52,235,1,0,0,0,54,237,
         1,0,0,0,56,242,1,0,0,0,58,59,3,2,1,0,59,60,5,0,0,1,60,1,1,0,0,0,
         61,63,3,6,3,0,62,61,1,0,0,0,63,66,1,0,0,0,64,62,1,0,0,0,64,65,1,
         0,0,0,65,3,1,0,0,0,66,64,1,0,0,0,67,69,3,6,3,0,68,67,1,0,0,0,69,
@@ -89,8 +89,8 @@ def serializedATN():
         0,224,225,3,46,23,4,225,227,1,0,0,0,226,222,1,0,0,0,227,230,1,0,
         0,0,228,226,1,0,0,0,228,229,1,0,0,0,229,47,1,0,0,0,230,228,1,0,0,
         0,231,232,7,4,0,0,232,49,1,0,0,0,233,234,7,5,0,0,234,51,1,0,0,0,
-        235,236,7,6,0,0,236,53,1,0,0,0,237,241,5,20,0,0,238,239,5,21,0,0,
-        239,241,3,38,19,0,240,237,1,0,0,0,240,238,1,0,0,0,241,55,1,0,0,0,
+        235,236,7,6,0,0,236,53,1,0,0,0,237,240,5,20,0,0,238,241,5,21,0,0,
+        239,241,3,38,19,0,240,238,1,0,0,0,240,239,1,0,0,0,241,55,1,0,0,0,
         242,243,5,22,0,0,243,244,3,38,19,0,244,57,1,0,0,0,17,64,70,84,89,
         93,98,107,147,159,165,174,187,197,199,220,228,240
     ]
@@ -108,7 +108,7 @@ class tlangParser ( Parser ):
     literalNames = [ "<INVALID>", "'assert'", "'if'", "'['", "']'", "'else'", 
                      "'repeat'", "'goto'", "'('", "','", "')'", "'='", "'forward'", 
                      "'backward'", "'left'", "'right'", "'penup'", "'pendown'", 
-                     "'pause'", "'to'", "'return'", "'return '", "'print'", 
+                     "'pause'", "'to'", "'return '", "'void'", "'print'", 
                      "'+'", "'-'", "'*'", "'/'", "'pendown?'", "'<'", "'>'", 
                      "'=='", "'!='", "'<='", "'>='", "'&&'", "'||'", "'!'" ]
 
@@ -294,7 +294,7 @@ class tlangParser ( Parser ):
             self.state = 64
             self._errHandler.sync(self)
             _la = self._input.LA(1)
-            while (((_la) & ~0x3f) == 0 and ((1 << _la) & 824642105542) != 0):
+            while (((_la) & ~0x3f) == 0 and ((1 << _la) & 824640008390) != 0):
                 self.state = 61
                 self.instruction()
                 self.state = 66
@@ -352,7 +352,7 @@ class tlangParser ( Parser ):
                 self.state = 70 
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
-                if not ((((_la) & ~0x3f) == 0 and ((1 << _la) & 824642105542) != 0)):
+                if not ((((_la) & ~0x3f) == 0 and ((1 << _la) & 824640008390) != 0)):
                     break
 
         except RecognitionException as re:
@@ -489,7 +489,7 @@ class tlangParser ( Parser ):
                 self.state = 81
                 self.assertCommand()
                 pass
-            elif token in [20, 21]:
+            elif token in [20]:
                 self.enterOuterAlt(localctx, 11)
                 self.state = 82
                 self.returnCommand()
@@ -2005,18 +2005,17 @@ class tlangParser ( Parser ):
         localctx = tlangParser.ReturnCommandContext(self, self._ctx, self.state)
         self.enterRule(localctx, 54, self.RULE_returnCommand)
         try:
+            self.enterOuterAlt(localctx, 1)
+            self.state = 237
+            self.match(tlangParser.T__19)
             self.state = 240
             self._errHandler.sync(self)
             token = self._input.LA(1)
-            if token in [20]:
-                self.enterOuterAlt(localctx, 1)
-                self.state = 237
-                self.match(tlangParser.T__19)
-                pass
-            elif token in [21]:
-                self.enterOuterAlt(localctx, 2)
+            if token in [21]:
                 self.state = 238
                 self.match(tlangParser.T__20)
+                pass
+            elif token in [8, 24, 37, 38, 39]:
                 self.state = 239
                 self.expression(0)
                 pass

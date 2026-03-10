@@ -26,7 +26,7 @@ class ConditionCommand(Instruction):
         self.cond = condition
 
     def __str__(self):
-        return self.cond.__str__()
+        return "jump if false => " + self.cond.__str__()
 
 # Not Implemented Yet.
 class AssertCommand(Instruction):

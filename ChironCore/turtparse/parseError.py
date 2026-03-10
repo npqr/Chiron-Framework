@@ -18,3 +18,7 @@ class SyntaxErrorListener():
 
     def reportContextSensitivity(self):
         raise ValueError("Exit due to context sensitivity.")
+
+    def reportAttemptingFullContext(self, *args):
+        print("Attempting full context with args: ", args)
+        raise ValueError("Exit due to attempting full context.")
