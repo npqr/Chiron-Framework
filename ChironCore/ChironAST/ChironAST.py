@@ -263,18 +263,20 @@ class ProcedureDeclaration(Instruction):
     def __str__(self):
         params_s = ", ".join(self.params)
         header = f"to {self.name}({params_s})"
-        if not self.body:
-            body_s = "    pass"
-        else:
-            lines = []
-            for idx, item in enumerate(self.body):
-                if isinstance(item, tuple) and len(item) == 2:
-                    stmt, tgt = item
-                    lines.append("\t[SL" + str(idx) + "] " + str(stmt) + " [[" + str(tgt) + "]]")
-                else:
-                    lines.append("\t[SL" + str(idx) + "] " + str(item))
-            body_s = "\n".join(lines)
-        return header + "\n" + body_s + "\n\tend"
+
+        return header
+        # if not self.body:
+        #     body_s = "    pass"
+        # else:
+        #     lines = []
+        #     for idx, item in enumerate(self.body):
+        #         if isinstance(item, tuple) and len(item) == 2:
+        #             stmt, tgt = item
+        #             lines.append("\t[SL" + str(idx) + "] " + str(stmt) + " [[" + str(tgt) + "]]")
+        #         else:
+        #             lines.append("\t[SL" + str(idx) + "] " + str(item))
+        #     body_s = "\n".join(lines)
+        # return header + "\n" + body_s + "\n\tend"
 
 
 class ProcedureCall(Instruction):
@@ -295,3 +297,10 @@ class ProcedureCallExpr(Expression):
     def __str__(self):
         args_s = ", ".join([str(a) for a in self.args])
         return "call @" + self.name + "(" + args_s + ")"
+
+class Label(Instruction):
+    def __init__(self, name):
+        self.name = name
+
+    def __str__(self):
+        return "label " + self.name

@@ -65,9 +65,9 @@ class Interpreter:
     def sanityCheck(self, irInstr):
         stmt, tgt = irInstr
         # if not a condition command, rel. jump can't be anything but 1
-        if not isinstance(stmt, ChironAST.ConditionCommand):
-            if tgt != 1:
-                raise ValueError("Improper relative jump for non-conditional instruction", str(stmt), tgt)
+        # if not isinstance(stmt, ChironAST.ConditionCommand) and not isinstance(stmt, ChironAST.ProcedureDeclaration):
+        #     if tgt != 1:
+        #         raise ValueError("Improper relative jump for non-conditional instruction", str(stmt), tgt)
     
     def interpret(self):
         pass
@@ -77,10 +77,6 @@ class Interpreter:
 
 class ProgramContext:
     pass
-
-class ProcedureReturn(Exception):
-    def __init__(self, value):
-        self.value = value
 
 # TODO: move to a different file
 class ConcreteInterpreter(Interpreter):
@@ -95,6 +91,7 @@ class ConcreteInterpreter(Interpreter):
         if self.args is not None and self.args.hooks:
             self.chironhook = Chironhooks.ConcreteChironHooks()
         self.pc = 0
+        self.ret_val = None
 
         # initialize call stack with global program context
         self.call_stack = [self.prg]
@@ -102,7 +99,7 @@ class ConcreteInterpreter(Interpreter):
     def interpret(self):
         print("Program counter : ", self.pc)
         stmt, tgt = self.ir[self.pc]
-        print(stmt, stmt.__class__.__name__, tgt)
+        # print("CURR PC : ", self.pc, stmt, stmt.__class__.__name__, tgt)
 
         self.sanityCheck(self.ir[self.pc])
 
@@ -119,18 +116,21 @@ class ConcreteInterpreter(Interpreter):
         elif isinstance(stmt, ChironAST.NoOpCommand):
             ntgt = self.handleNoOpCommand(stmt, tgt)
         elif isinstance(stmt, ChironAST.ProcedureDeclaration):
-            ntgt = self.handleProcedureDeclaration(stmt, tgt)
+            ntgt = self.handleProcedureDeclaration(stmt, tgt, self.pc)
         elif isinstance(stmt, ChironAST.ProcedureCall):
-            ntgt = self.handleProcedureCall(stmt, tgt)
+            ntgt = self.handleProcedureCall(stmt, tgt, self.pc)
         elif isinstance(stmt, ChironAST.PrintCommand):
             ntgt = self.handlePrintCommand(stmt, tgt)
         elif isinstance(stmt, ChironAST.AssertCommand):
             ntgt = self.handleAssertCommand(stmt, tgt)
+        elif isinstance(stmt, ChironAST.Label):
+            ntgt = self.pc + 1
         else:
             raise NotImplementedError("Unknown instruction: %s, %s."%(type(stmt), stmt))
 
         # TODO: handle statement
-        self.pc += ntgt
+        self.pc = ntgt
+        # print("NEXT PC : ", self.pc)
 
         if self.pc >= len(self.ir):
             # This is the ending of the interpreter.
@@ -157,41 +157,42 @@ class ConcreteInterpreter(Interpreter):
         # evaluate RHS expression in current frame
         val = self._eval_in_frame(stmt.rexpr, self.prg)
         setattr(self.prg, lhs, val)
-        return 1
+        return tgt
 
-    def handleCondition(self, stmt, tgt):
+    def handleCondition(self, stmt, tgt, pc):
         print("  Branch Instruction")
         self.cond_eval = self._eval_in_frame(stmt.cond, self.prg)
-        return 1 if self.cond_eval else tgt
+        return pc + 1 if self.cond_eval else tgt
 
     def handleMove(self, stmt, tgt):
         print("  MoveCommand")
         exec("self.trtl.%s(%s)" % (stmt.direction,addContext(stmt.expr)))
-        return 1
+        return tgt
 
     def handleNoOpCommand(self, stmt, tgt):
         print("  No-Op Command")
-        return 1
+        return tgt
 
     def handlePen(self, stmt, tgt):
         print("  PenCommand")
         exec("self.trtl.%s()"%(stmt.status))
-        return 1
+        return tgt
 
     def handleGotoCommand(self, stmt, tgt):
         print(" GotoCommand")
         xcor = addContext(stmt.xcor)
         ycor = addContext(stmt.ycor)
         exec("self.trtl.goto(%s, %s)" % (xcor, ycor))
-        return 1
+        return tgt
 
-    def handleProcedureDeclaration(self, stmt, tgt):
+    def handleProcedureDeclaration(self, stmt, tgt, pc):
         print(" Procedure Declaration")
         # disallow redeclaration of existing procedures/variables in global frame
         if hasattr(self.prg, stmt.name):
             raise NameError("Name conflict: %s is already defined in global scope" % stmt.name)
-        setattr(self.prg, stmt.name, stmt)
-        return 1
+        setattr(self.prg, stmt.name, pc)
+        print("  Stored procedure %s at IR index %s in global frame" % (stmt.name, pc))
+        return tgt + len(stmt.body)
 
     # recursive expr evaluating instead of exec'ing raw strings
     def _eval_in_frame(self, expr, frame):
@@ -243,7 +244,7 @@ class ConcreteInterpreter(Interpreter):
                 return eval_expr(e.lexpr) == eval_expr(e.rexpr)
             if isinstance(e, ChironAST.NEQ):
                 return eval_expr(e.lexpr) != eval_expr(e.rexpr)
-            
+
             if isinstance(e, ChironAST.BoolFalse):
                 return False
 
@@ -251,18 +252,16 @@ class ConcreteInterpreter(Interpreter):
 
         return eval_expr(expr)
 
-    def _execute_ast_instr(self, instr):
+    def _execute_ast_instr(self, instr, pc):
         # instr may be either an AST node, or a (node, offset) tuple coming
         # from flattened procedure bodies. Normalize to (stmt, tgt).
-        if isinstance(instr, tuple) and len(instr) >= 1:
-            stmt, tgt = instr[0], instr[1] if len(instr) > 1 else 1
-        else:
-            stmt, tgt = instr, 1
+        stmt, tgt = instr
+        # print("CURR PC : ", pc, stmt, stmt.__class__.__name__, tgt)
 
         if isinstance(stmt, ChironAST.AssignmentCommand):
             return self.handleAssignment(stmt, tgt)
         if isinstance(stmt, ChironAST.ConditionCommand):
-            return self.handleCondition(stmt, tgt)
+            return self.handleCondition(stmt, tgt, self.pc)
         if isinstance(stmt, ChironAST.MoveCommand):
             return self.handleMove(stmt, tgt)
         if isinstance(stmt, ChironAST.PenCommand):
@@ -274,13 +273,13 @@ class ConcreteInterpreter(Interpreter):
         if isinstance(stmt, ChironAST.PauseCommand):
             return self.handlePauseCommand(stmt, tgt)
         if isinstance(stmt, ChironAST.ProcedureCall):
-            return self.handleProcedureCall(stmt, tgt)
+            return self.handleProcedureCall(stmt, tgt, pc)
         if isinstance(stmt, ChironAST.ReturnCommand):
             if stmt.expr is None:
-                val = None
+                self.ret_val = None
             else:
-                val = self._eval_in_frame(stmt.expr, self.prg)
-            raise ProcedureReturn(val)
+                self.ret_val = self._eval_in_frame(stmt.expr, self.prg)
+            return self.prg.caller_addr
         if isinstance(stmt, ChironAST.PrintCommand):
             return self.handlePrintCommand(stmt, tgt)
         if isinstance(stmt, ChironAST.AssertCommand):
@@ -293,7 +292,7 @@ class ConcreteInterpreter(Interpreter):
         # print("  PrintCommand")
         value = self._eval_in_frame(stmt.expr, self.prg)
         print("[%s] : %s" % (stmt.expr, value))
-        return 1
+        return tgt
 
     # helper: call a procedure and return its value
     def _call_procedure_and_get_return(self, proc_name, arg_vals):
@@ -304,7 +303,12 @@ class ConcreteInterpreter(Interpreter):
         if not hasattr(global_frame, proc_name):
             raise NameError("Undefined procedure: %s" % proc_name)
         proc = getattr(global_frame, proc_name)
+        # print("  Found procedure declaration:", proc)
+        proc, pc = self.ir[proc]
+        caller_addr = self.pc + 1
+        print("  should return to ", caller_addr)
 
+        self.pc = pc
         # create new frame and bind parameters
         new_frame = ProgramContext()
         for i, pname in enumerate(proc.params):
@@ -312,41 +316,36 @@ class ConcreteInterpreter(Interpreter):
             val = arg_vals[i] if i < len(arg_vals) else None
             setattr(new_frame, bare, val)
 
-        # push new frame and execute body, catching ProcedureReturn
         self.call_stack.append(new_frame)
+
         prev_prg = self.prg
         self.prg = new_frame
-        ret_val = None
+        self.prg.caller_addr = caller_addr
+        end_pc = self.pc + len(proc.body) if proc.body else self.pc + 1
         try:
-            pc = 0
-            # proc.body now contains (node, offset) tuples from the builder
-            while pc < len(proc.body):
-                item = proc.body[pc]
-                if isinstance(item, tuple):
-                    self.sanityCheck(item)
-                try:
-                    ntgt = self._execute_ast_instr(item)
-                except ProcedureReturn as r:
-                    ret_val = r.value
-                    # stop executing body on return
-                    break
-                pc += ntgt
+            # print("CURR PC : ", self.pc)
+            while self.pc < end_pc:
+                item = self.ir[self.pc]
+                self.sanityCheck(item)
+                self.pc = self._execute_ast_instr(item, self.pc)
+
+        # has encountered a return
         finally:
             self.call_stack.pop()
             self.prg = prev_prg
-        return ret_val
+        return self.ret_val
 
-    def handleProcedureCall(self, stmt, tgt):
+    def handleProcedureCall(self, stmt, tgt, pc):
         print(" Procedure Call: %s" % stmt.name)
         # For statement-level calls, evaluate args then call helper and ignore return value
         caller_frame = self.call_stack[-1]
         arg_vals = [self._eval_in_frame(a, caller_frame) for a in stmt.args]
-        _ = self._call_procedure_and_get_return(stmt.name, arg_vals)
-        return 1
+        self._call_procedure_and_get_return(stmt.name, arg_vals)
+        return tgt
 
     def handleAssertCommand(self, stmt, tgt):
         # evaluate the assert condition in current frame; if false, raise AssertionError
         cond_val = self._eval_in_frame(stmt.cond, self.call_stack[-1])
         if not bool(cond_val):
             raise AssertionError("Assertion failed: %s" % (stmt.cond,))
-        return 1
+        return tgt

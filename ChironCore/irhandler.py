@@ -130,3 +130,29 @@ class IRHandler:
         print("The number after the opcode name represents the jump offset \nrelative to that statement.\n")
         for idx, item in enumerate(irList):
             print(f"[L{idx}]".rjust(5), item[0], f"[{item[1]}]")
+
+    def flattenIR(self, irList):
+        flatList = []
+        # print(irList)
+        
+        irList.sort(key=lambda x: isinstance(x[0], ChironAST.ProcedureDeclaration), reverse=True)
+        pc = 0
+        # find first non-procedure declaration
+        # start = -1
+
+        # TODO: should actually check for redefinitions here itself?
+        for (item, ntgt) in irList:
+            if isinstance(item, ChironAST.ProcedureDeclaration):
+                flatList.append((item, pc + 1))
+                pc += 1
+                for stmt, tgt in item.body:
+                     flatList.append((stmt, pc + tgt))
+                     pc += 1
+            else:
+                # if start == -1:
+                #     start = pc
+                flatList.append((item, pc + ntgt))
+                pc += 1
+
+        # boolFalse = ChironAST.ConditionCommand(ChironAST.BoolFalse())
+        return flatList

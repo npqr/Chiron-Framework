@@ -213,6 +213,7 @@ if __name__ == "__main__":
         parseTree = getParseTree(args.progfl)
         astgen = astGenPass()
         ir = astgen.visitStart(parseTree)
+        ir = irHandler.flattenIR(ir)
 
     # Set the IR of the program.
     irHandler.setIR(ir)
