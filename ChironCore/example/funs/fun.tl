@@ -1,14 +1,14 @@
 // Simple Function Declaration and Calls
 
 to fun(:x, :y) [
-	repeat 5 [
+	//repeat 5 [
 		goto(:x, :y)
 		pendown
 		forward 50
 		penup
 		:x = :x * 2
 		:y = :y + :x
-	]
+	//]
 	return void
 ]
 
@@ -36,3 +36,8 @@ fun(:a, :b)
 assert(:a == 11 * 15)
 
 goto(:a, :b)
+
+/* error
+:x = fun(4, 5) * add(3, 4)
+print(:x)
+*/

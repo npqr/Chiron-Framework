@@ -35,6 +35,11 @@ to bs(:low, :high, :key) [
     if :low > :high [ return -1 ]
 
     :mid = (:low + :high) / 2
+    
+    print(:low)
+    print(:high)
+    print(:mid)
+    print(:key)
 
     if (valueAt(:mid) == :key) [ return :mid ]
     
@@ -46,10 +51,13 @@ to bs(:low, :high, :key) [
 ]
 
 :idx = bs(0, :n - 1, 18)
+print(:idx) // 3
 assert(:idx == 3)
 
 :idx = bs(0, :n - 1, 47)
 assert(:idx == 6)
 
+/*
 :idx = bs(0, :n - 1, 19)
 assert(:idx == -1)
+*/

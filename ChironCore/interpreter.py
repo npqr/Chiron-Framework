@@ -99,14 +99,14 @@ class ConcreteInterpreter(Interpreter):
     def interpret(self):
         print("Program counter : ", self.pc)
         stmt, tgt = self.ir[self.pc]
-        # print("CURR PC : ", self.pc, stmt, stmt.__class__.__name__, tgt)
+        print("CURR PC : ", self.pc, stmt, stmt.__class__.__name__, tgt)
 
         self.sanityCheck(self.ir[self.pc])
 
         if isinstance(stmt, ChironAST.AssignmentCommand):
             ntgt = self.handleAssignment(stmt, tgt)
         elif isinstance(stmt, ChironAST.ConditionCommand):
-            ntgt = self.handleCondition(stmt, tgt)
+            ntgt = self.handleCondition(stmt, tgt, self.pc)
         elif isinstance(stmt, ChironAST.MoveCommand):
             ntgt = self.handleMove(stmt, tgt)
         elif isinstance(stmt, ChironAST.PenCommand):
@@ -116,15 +116,17 @@ class ConcreteInterpreter(Interpreter):
         elif isinstance(stmt, ChironAST.NoOpCommand):
             ntgt = self.handleNoOpCommand(stmt, tgt)
         elif isinstance(stmt, ChironAST.ProcedureDeclaration):
-            ntgt = self.handleProcedureDeclaration(stmt, tgt, self.pc)
+            ntgt = self.handleProcedureDeclaration(stmt, tgt)
         elif isinstance(stmt, ChironAST.ProcedureCall):
-            ntgt = self.handleProcedureCall(stmt, tgt, self.pc)
+            ntgt = self.handleProcedureCall(stmt, tgt)
         elif isinstance(stmt, ChironAST.PrintCommand):
             ntgt = self.handlePrintCommand(stmt, tgt)
         elif isinstance(stmt, ChironAST.AssertCommand):
             ntgt = self.handleAssertCommand(stmt, tgt)
         elif isinstance(stmt, ChironAST.Label):
             ntgt = self.pc + 1
+        elif isinstance(stmt, ChironAST.ReturnCommand):
+            ntgt = self.handleReturnCommand(stmt, tgt)
         else:
             raise NotImplementedError("Unknown instruction: %s, %s."%(type(stmt), stmt))
 
@@ -155,7 +157,10 @@ class ConcreteInterpreter(Interpreter):
         print("  Assignment Statement")
         lhs = str(stmt.lvar).replace(":", "")
         # evaluate RHS expression in current frame
+        # print("  Evaluating RHS expression for assignment to variable %s: %s" % (lhs, stmt.rexpr))
         val = self._eval_in_frame(stmt.rexpr, self.prg)
+        # print("FINALLY RETURNED!!!!", val)
+        # print("Setting variable %s to value %s in current frame" % (lhs, val))
         setattr(self.prg, lhs, val)
         return tgt
 
@@ -185,17 +190,19 @@ class ConcreteInterpreter(Interpreter):
         exec("self.trtl.goto(%s, %s)" % (xcor, ycor))
         return tgt
 
-    def handleProcedureDeclaration(self, stmt, tgt, pc):
+    def handleProcedureDeclaration(self, stmt, tgt):
         print(" Procedure Declaration")
         # disallow redeclaration of existing procedures/variables in global frame
         if hasattr(self.prg, stmt.name):
             raise NameError("Name conflict: %s is already defined in global scope" % stmt.name)
-        setattr(self.prg, stmt.name, pc)
-        print("  Stored procedure %s at IR index %s in global frame" % (stmt.name, pc))
+        setattr(self.prg, stmt.name, self.pc)
+        print("  Stored procedure %s at IR index %s in global frame" % (stmt.name, self.pc))
         return tgt + len(stmt.body)
 
     # recursive expr evaluating instead of exec'ing raw strings
     def _eval_in_frame(self, expr, frame):
+        print("CURR FRAME : ", frame.__dict__)
+        print("  Evaluating expression: ", expr, type(expr))
         def eval_expr(e):
             if isinstance(e, ChironAST.Num):
                 return e.val
@@ -223,7 +230,7 @@ class ConcreteInterpreter(Interpreter):
             if isinstance(e, ChironAST.Mult):
                 return eval_expr(e.lexpr) * eval_expr(e.rexpr)
             if isinstance(e, ChironAST.Div):
-                return eval_expr(e.lexpr) / eval_expr(e.rexpr)
+                return eval_expr(e.lexpr) // eval_expr(e.rexpr) # integer division
 
             if isinstance(e, ChironAST.AND):
                 return bool(eval_expr(e.lexpr)) and bool(eval_expr(e.rexpr))
@@ -306,7 +313,7 @@ class ConcreteInterpreter(Interpreter):
         # print("  Found procedure declaration:", proc)
         proc, pc = self.ir[proc]
         caller_addr = self.pc + 1
-        print("  should return to ", caller_addr)
+        # print("  should return to ", caller_addr)
 
         self.pc = pc
         # create new frame and bind parameters
@@ -321,13 +328,12 @@ class ConcreteInterpreter(Interpreter):
         prev_prg = self.prg
         self.prg = new_frame
         self.prg.caller_addr = caller_addr
+        start_pc = self.pc
         end_pc = self.pc + len(proc.body) if proc.body else self.pc + 1
         try:
-            # print("CURR PC : ", self.pc)
-            while self.pc < end_pc:
-                item = self.ir[self.pc]
-                self.sanityCheck(item)
-                self.pc = self._execute_ast_instr(item, self.pc)
+            while self.pc >= start_pc and self.pc < end_pc:
+                # print("CURR PC : ", self.pc)
+                self.interpret()
 
         # has encountered a return
         finally:
@@ -335,8 +341,9 @@ class ConcreteInterpreter(Interpreter):
             self.prg = prev_prg
         return self.ret_val
 
-    def handleProcedureCall(self, stmt, tgt, pc):
+    def handleProcedureCall(self, stmt, tgt):
         print(" Procedure Call: %s" % stmt.name)
+        print("TGT : ", tgt)
         # For statement-level calls, evaluate args then call helper and ignore return value
         caller_frame = self.call_stack[-1]
         arg_vals = [self._eval_in_frame(a, caller_frame) for a in stmt.args]
@@ -349,3 +356,11 @@ class ConcreteInterpreter(Interpreter):
         if not bool(cond_val):
             raise AssertionError("Assertion failed: %s" % (stmt.cond,))
         return tgt
+
+    def handleReturnCommand(self, stmt, tgt):
+        if stmt.expr is None:
+            self.ret_val = None
+        else:
+            self.ret_val = self._eval_in_frame(stmt.expr, self.prg)
+            
+        return self.prg.caller_addr

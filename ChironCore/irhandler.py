@@ -129,12 +129,20 @@ class IRHandler:
         print("The first label before the opcode name represents the IR index or label \non the control flow graph for that node.\n")
         print("The number after the opcode name represents the jump offset \nrelative to that statement.\n")
         for idx, item in enumerate(irList):
-            print(f"[L{idx}]".rjust(5), item[0], f"[{item[1]}]")
+            if isinstance(item[0], ChironAST.ProcedureDeclaration):
+                params = item[0].params.__str__()[1:-1]
+                # params = params.replace(":", "")
+                params = params.replace("'", "")
+                print(f"[L{idx}]".rjust(5), f"func @{item[0].name}({params}):")
+            elif not (isinstance(item[0], ChironAST.ConditionCommand)):
+                print(f"[L{idx}]".rjust(5), f"\t{item[0]}")
+            else:
+                print(f"[L{idx}]".rjust(5), f"\t{item[0]} [{item[1]}]")
 
     def flattenIR(self, irList):
         flatList = []
         # print(irList)
-        
+
         irList.sort(key=lambda x: isinstance(x[0], ChironAST.ProcedureDeclaration), reverse=True)
         pc = 0
         # find first non-procedure declaration
@@ -146,8 +154,8 @@ class IRHandler:
                 flatList.append((item, pc + 1))
                 pc += 1
                 for stmt, tgt in item.body:
-                     flatList.append((stmt, pc + tgt))
-                     pc += 1
+                    flatList.append((stmt, pc + tgt))
+                    pc += 1
             else:
                 # if start == -1:
                 #     start = pc
@@ -155,4 +163,7 @@ class IRHandler:
                 pc += 1
 
         # boolFalse = ChironAST.ConditionCommand(ChironAST.BoolFalse())
+        # print("\n========== Flattened IR ==========\n")
+        # for idx, item in enumerate(flatList):
+        #     print(f"[L{idx}]".rjust(5), item, item[0], f"[{item[1]}]")
         return flatList
