@@ -151,9 +151,13 @@ class IRHandler:
         # TODO: should actually check for redefinitions here itself?
         for (item, ntgt) in irList:
             if isinstance(item, ChironAST.ProcedureDeclaration):
+                # print(f"Flattening procedure: {item.name} with params {item.params}")
+                # print(f"Procedure body: {item.body}")
                 flatList.append((item, pc + 1))
                 pc += 1
                 for stmt, tgt in item.body:
+                    if(isinstance(stmt, ChironAST.ProcedureDeclaration)):
+                        raise SyntaxError(f"Nested procedure declaration found: {stmt.name}. This is not supported.")
                     flatList.append((stmt, pc + tgt))
                     pc += 1
             else:

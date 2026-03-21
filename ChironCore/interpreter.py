@@ -196,7 +196,7 @@ class ConcreteInterpreter(Interpreter):
         if hasattr(self.prg, stmt.name):
             raise NameError("Name conflict: %s is already defined in global scope" % stmt.name)
         setattr(self.prg, stmt.name, self.pc)
-        print("  Stored procedure %s at IR index %s in global frame" % (stmt.name, self.pc))
+        print("  Stored procedure %s at IR index %s in frame %s" % (stmt.name, self.pc, self.prg.__dict__))
         return tgt + len(stmt.body)
 
     # recursive expr evaluating instead of exec'ing raw strings

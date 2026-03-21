@@ -1,7 +1,16 @@
 to fun(:a, :b) [
     :x = add(:a, :b)
     :y = mul(:a, :b)
-    return add(:x, 5)
+
+    print(:x)
+    // not supported
+    to foo(:p, :q) [
+        return :p + :q
+    ]
+
+    :x = foo(:x, :a)
+    print(:x)
+    return :x
 ]
 
 to add(:p, :q) [
@@ -12,4 +21,5 @@ to mul(:a, :b) [
     return :a * :b
 ]
 
-fun(6, 7)
+:xx = fun(6, 7)
+print(:xx)
