@@ -339,11 +339,3 @@ class StackDealloc(Instruction):
 
     def __str__(self):
         return f"stack_dealloc {self.size}"
-    
-# class ReadFromArgStack(Instruction):
-#     def __init__(self, idx):
-#         self.idx = idx
-
-#     def __str__(self):
-#         return f"read_arg_stack {self.idx}"
-    

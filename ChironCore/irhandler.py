@@ -146,9 +146,6 @@ class IRHandler:
 
         irList.sort(key=lambda x: isinstance(x[0], ChironAST.ProcedureDeclaration), reverse=True)
         pc = 0
-        # find first non-procedure declaration
-        # self.entry_pc = -1
-        assert_cnt = 0
 
         for (item, ntgt) in irList:
             if isinstance(item, ChironAST.ProcedureDeclaration):
@@ -157,26 +154,6 @@ class IRHandler:
                 head_idx = len(flatList)
                 flatList.append((item, -1))
                 pc += 1
-
-                # for param_name in item.params:
-                #     # Allocate space on the stack for the local version of the param
-                #     # Equivalent to: %param.addr = alloca i32
-                #     flatList.append((ChironAST.StackAlloc(param_name), ntgt + pc))
-                #     pc += 1
-
-                # find local variable names and allocate stack space for them
-                # local_vars = set()
-
-                # for i, param_name in enumerate(reversed(item.params)):
-                #     flatList.append((
-                #         ChironAST.AssignmentCommand(
-                #             ChironAST.Var(param_name), ChironAST.ReadFromArgStack(i)
-                #         ),
-                #         ntgt + pc
-                #     ))
-                #     pc += 1
-
-                # find all local variables
 
                 for stmt, tgt in item.body:
                     if(isinstance(stmt, ChironAST.ProcedureDeclaration)):
@@ -188,12 +165,9 @@ class IRHandler:
                 print(ntgt, pc, head_idx)
                 flatList[head_idx] = (item, ntgt + len(flatList) - 1)
             else:
-                # if self.entry_pc == -1:
-                # self.entry_pc = pc
                 flatList.append((item, pc + ntgt))
                 pc += 1
 
-        boolFalse = ChironAST.ConditionCommand(ChironAST.BoolFalse())
         print("\n========== Flattened IR ==========\n")
         for idx, item in enumerate(flatList):
             print(f"[L{idx}]".rjust(5), item[0], f"[{item[1]}]")
@@ -264,9 +238,6 @@ class IRHandler:
             
             # TODO: flatten condition as well
 
-            # if isinstance(expr, ChironAST.ReadFromArgStack):
-            #     return expr, []
-
             raise SyntaxError(f"Unsupported expression type for reduction: {expr}")
             return expr, []
 
@@ -293,7 +264,7 @@ class IRHandler:
                 expanded_instrs.append(ChironAST.MoveCommand(instr.direction, res_var))
             elif isinstance(instr, ChironAST.ProcedureCall):
                 # Same arg reduction as above
-                print("DID WE GET HERE TOO?")
+                # print("DID WE GET HERE TOO?")
                 reduced_args = []
                 for arg in instr.args:
                     arg_var, arg_steps = reduce_expression(arg)
@@ -355,7 +326,6 @@ class IRHandler:
         def get_used_vars(expr):
             used = set()
             if isinstance(expr, ChironAST.Var):
-
                 used.add(expr.varname)
 
             # Check binary operands
@@ -374,7 +344,6 @@ class IRHandler:
             return used
 
         def get_all_locals(proc):
-
             all_locals = dict()  
             local_cnt = 0
 
