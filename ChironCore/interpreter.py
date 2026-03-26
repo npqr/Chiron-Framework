@@ -77,6 +77,22 @@ class Interpreter:
 
 class ProgramContext:
     pass
+class Stack:
+    def __init__(self, sz):
+        self.sp = 0
+        self.stack = [None] * sz
+    def push(self, val):
+        self.stack[self.sp] = val
+        self.sp += 1
+        print(self.stack)
+
+        if self.sp > len(self.stack):
+            raise OverflowError("Stack overflow")
+    def pop(self):
+        if self.sp <= 0:
+            raise OverflowError("Stack underflow")
+        self.sp -= 1
+        return self.stack[self.sp]
 
 # TODO: move to a different file
 class ConcreteInterpreter(Interpreter):
@@ -93,13 +109,25 @@ class ConcreteInterpreter(Interpreter):
         self.pc = 0
         self.ret_val = None
 
+        MAX_STACK_SIZE = 10000
+
         # initialize call stack with global program context
-        self.call_stack = [self.prg]
+        # self.call_stack = [self.prg]
+        # self.arg_stack = []
+
+        self.stack = Stack(MAX_STACK_SIZE)
+        self.tregs = [None] * 20
+        self.funs = irHandler.funs
+        self.rbp = 0
+        print(self.funs)
 
     def interpret(self):
         print("Program counter : ", self.pc)
         stmt, tgt = self.ir[self.pc]
         print("CURR PC : ", self.pc, stmt, stmt.__class__.__name__, tgt)
+        # print("STACK : ", self.stack.stack)
+        print("RBP : ", self.rbp)
+        print("RET_VAL : ", self.ret_val)
 
         self.sanityCheck(self.ir[self.pc])
 
@@ -117,8 +145,8 @@ class ConcreteInterpreter(Interpreter):
             ntgt = self.handleNoOpCommand(stmt, tgt)
         elif isinstance(stmt, ChironAST.ProcedureDeclaration):
             ntgt = self.handleProcedureDeclaration(stmt, tgt)
-        elif isinstance(stmt, ChironAST.ProcedureCall):
-            ntgt = self.handleProcedureCall(stmt, tgt)
+        # elif isinstance(stmt, ChironAST.ProcedureCall): # wont reach here now since now we have CallN
+        #     ntgt = self.handleProcedureCall(stmt, tgt)
         elif isinstance(stmt, ChironAST.PrintCommand):
             ntgt = self.handlePrintCommand(stmt, tgt)
         elif isinstance(stmt, ChironAST.AssertCommand):
@@ -127,6 +155,14 @@ class ConcreteInterpreter(Interpreter):
             ntgt = self.pc + 1
         elif isinstance(stmt, ChironAST.ReturnCommand):
             ntgt = self.handleReturnCommand(stmt, tgt)
+        elif isinstance(stmt, ChironAST.ParamCommand):
+            ntgt = self.handleParamCommand(stmt, tgt)
+        elif isinstance(stmt, ChironAST.CallN):
+            ntgt = self.handleCallN(stmt, tgt, self.pc)
+        elif isinstance(stmt, ChironAST.StackAlloc):
+            ntgt = self.handleStackAlloc(stmt, tgt)
+        elif isinstance(stmt, ChironAST.StackDealloc):
+            ntgt = self.handleStackDealloc(stmt, tgt)
         else:
             raise NotImplementedError("Unknown instruction: %s, %s."%(type(stmt), stmt))
 
@@ -152,26 +188,143 @@ class ConcreteInterpreter(Interpreter):
             var = key.replace(":","")
             exec("setattr(self.prg,\"%s\",%s)" % (var, val))
 
-    # modified Assignment handler to evaluate RHS expr
+    # TODO: handle turtle graphics states too
+    def get_operand_value(self, node):
+        print("  Evaluating operand/expression: ", node, type(node))
+        # evaluate literals
+        if isinstance(node, ChironAST.Num):
+            return node.val
+        if isinstance(node, ChironAST.BoolTrue):
+            return True
+        if isinstance(node, ChironAST.BoolFalse):
+            return False
+
+        # variables (global frame or stack frame)
+        if isinstance(node, ChironAST.Var):
+            varname = node.varname.replace(":", "")
+            if self.rbp < 2:
+                if hasattr(self.prg, varname):
+                    return getattr(self.prg, varname)
+                raise NameError("Undefined variable: %s" % varname)
+            
+            ret_pc = self.stack.stack[self.rbp - 2]
+
+            if ret_pc <= 0 or ret_pc > len(self.ir):
+                if hasattr(self.prg, varname):
+                    return getattr(self.prg, varname)
+                raise NameError("Undefined variable: %s (invalid return address)" % varname)
+
+            instr = self.ir[ret_pc - 1][0]
+            proc_name = getattr(instr, "proc_name", None)
+            offsets = self.funs[proc_name].get("offsets", {})
+            if varname not in offsets:
+                # variable not a local of the procedure -> check global frame
+                if hasattr(self.prg, varname):
+                    return getattr(self.prg, varname)
+                raise NameError("Undefined variable: %s" % varname)
+
+            offset = offsets[varname]
+            idx = self.rbp + offset
+            # ensure index is within the current allocated stack region
+            if idx < 0 or idx >= len(self.stack.stack):
+                raise IndexError("STACK ACCESS VIOLATION: RBP=%s, offset=%s, idx=%s, sp=%s" % (self.rbp, offset, idx, self.stack.sp))
+
+            return self.stack.stack[idx]
+        
+        # return value
+        if isinstance(node, ChironAST.RetVal):
+            return self.ret_val
+
+        # pen status
+        if isinstance(node, ChironAST.PenStatus):
+            return self.trtl.isdown()
+
+        # unary ops
+        if isinstance(node, ChironAST.UMinus):
+            return -self.get_operand_value(node.expr)
+        if isinstance(node, ChironAST.NOT):
+            return not bool(self.get_operand_value(node.expr))
+
+        # binary arithmetic / comparison / logical ops
+        if isinstance(node, (ChironAST.Sum, ChironAST.Diff, ChironAST.Mult, ChironAST.Div,
+                             ChironAST.LT, ChironAST.GT, ChironAST.LTE, ChironAST.GTE,
+                             ChironAST.EQ, ChironAST.NEQ, ChironAST.AND, ChironAST.OR,
+                             ChironAST.BinArithOp, ChironAST.BinCondOp)):
+            left = self.get_operand_value(node.lexpr)
+            right = self.get_operand_value(node.rexpr)
+
+            print(f"  Evaluating binary operation: {node.__class__.__name__} with left={left} and right={right}")
+
+            if isinstance(node, ChironAST.Sum):   return left + right
+            if isinstance(node, ChironAST.Diff):  return left - right
+            if isinstance(node, ChironAST.Mult):  return left * right
+            if isinstance(node, ChironAST.Div):   return left // right
+            if isinstance(node, ChironAST.LT):    return left < right
+            if isinstance(node, ChironAST.GT):    return left > right
+            if isinstance(node, ChironAST.LTE):   return left <= right
+            if isinstance(node, ChironAST.GTE):   return left >= right
+            if isinstance(node, ChironAST.EQ):    return left == right
+            if isinstance(node, ChironAST.NEQ):   return left != right
+            if isinstance(node, ChironAST.AND):   return bool(left) and bool(right)
+            if isinstance(node, ChironAST.OR):    return bool(left) or bool(right)
+            
+            raise RuntimeError("Unsupported binary operator type: %s" % type(node))
+
+        # won't reach here now since now we have CallN
+
+        # # procedure call as expression (evaluate args, delegate to helper if available)
+        # if isinstance(node, ChironAST.ProcedureCallExpr):
+        #     arg_vals = [self.get_operand_value(a) for a in node.args]
+        #     if hasattr(self, "_call_procedure_and_get_return"):
+        #         return self._call_procedure_and_get_return(node.name, arg_vals)
+        #     raise NotImplementedError("Procedure call expressions not supported in this interpreter state")
+        
+        if not node:
+            return None
+
+        raise RuntimeError("Unsupported operand/expression type: %s" % type(node))
+            
     def handleAssignment(self, stmt, tgt):
-        print("  Assignment Statement")
-        lhs = str(stmt.lvar).replace(":", "")
-        # evaluate RHS expression in current frame
-        # print("  Evaluating RHS expression for assignment to variable %s: %s" % (lhs, stmt.rexpr))
-        val = self._eval_in_frame(stmt.rexpr, self.prg)
-        # print("FINALLY RETURNED!!!!", val)
-        # print("Setting variable %s to value %s in current frame" % (lhs, val))
-        setattr(self.prg, lhs, val)
+        """
+        Processes x = <expr>. In 3AC, <expr> is guaranteed to be 
+        a single operation or a leaf value.
+        """
+        lhs_name = stmt.lvar.varname.replace(":", "")
+        rhs = stmt.rexpr
+        final_val = None
+        offset = None
+
+        print("RHS of assignment is: ", rhs, type(rhs))
+        final_val = self.get_operand_value(rhs)
+
+        if(self.rbp == 0):
+            setattr(self.prg, lhs_name, final_val)
+            print(f"  Assigned variable {lhs_name} = {final_val} in global frame {self.prg.__dict__}")
+        else:
+            # if lhs_name.startswith("__treg"):
+            #     reg_idx = int(lhs_name[6:])
+            #     self.tregs[reg_idx] = final_val
+            # else:
+            # print("RCCBP : ", self.rbp)
+            ret_pc = self.stack.stack[self.rbp - 2]
+            proc_name = self.ir[ret_pc - 1][0].proc_name
+            print(lhs_name)
+            print(self.funs[proc_name])                
+            offset = self.funs[proc_name]["offsets"][lhs_name]
+            self.stack.stack[self.rbp + offset] = final_val
+
+        print(f"  Assigned variable {lhs_name} = {final_val} in frame with RBP {self.rbp}, offset {offset}")
         return tgt
 
     def handleCondition(self, stmt, tgt, pc):
         print("  Branch Instruction")
-        self.cond_eval = self._eval_in_frame(stmt.cond, self.prg)
+        self.cond_eval = self.get_operand_value(stmt.cond)
         return pc + 1 if self.cond_eval else tgt
 
     def handleMove(self, stmt, tgt):
         print("  MoveCommand")
-        exec("self.trtl.%s(%s)" % (stmt.direction,addContext(stmt.expr)))
+        val = self.get_operand_value(stmt.expr)
+        exec("self.trtl.%s(%s)" % (stmt.direction, val))
         return tgt
 
     def handleNoOpCommand(self, stmt, tgt):
@@ -185,19 +338,27 @@ class ConcreteInterpreter(Interpreter):
 
     def handleGotoCommand(self, stmt, tgt):
         print(" GotoCommand")
-        xcor = addContext(stmt.xcor)
-        ycor = addContext(stmt.ycor)
-        exec("self.trtl.goto(%s, %s)" % (xcor, ycor))
+        xcor = self.get_operand_value(stmt.xcor)
+        ycor = self.get_operand_value(stmt.ycor)
+        self.trtl.goto(xcor, ycor)    
         return tgt
 
     def handleProcedureDeclaration(self, stmt, tgt):
-        print(" Procedure Declaration")
+        # print(" Procedure Declaration")
         # disallow redeclaration of existing procedures/variables in global frame
-        if hasattr(self.prg, stmt.name):
-            raise NameError("Name conflict: %s is already defined in global scope" % stmt.name)
-        setattr(self.prg, stmt.name, self.pc)
-        print("  Stored procedure %s at IR index %s in frame %s" % (stmt.name, self.pc, self.prg.__dict__))
-        return tgt + len(stmt.body)
+        # if hasattr(self.prg, stmt.name):
+        #     raise NameError("Name conflict: %s is already defined in global scope" % stmt.name)
+        # setattr(self.prg, stmt.name, self.pc + 1)
+        # print("  Stored procedure %s at IR index %s in frame %s" % (stmt.name, self.pc, self.prg.__dict__))
+        return tgt
+
+    def handleStackAlloc(self, stmt, tgt):
+        self.stack.sp += stmt.size
+        return tgt
+    
+    def handleStackDealloc(self, stmt, tgt):
+        self.stack.sp -= stmt.size
+        return tgt
 
     # recursive expr evaluating instead of exec'ing raw strings
     def _eval_in_frame(self, expr, frame):
@@ -297,8 +458,9 @@ class ConcreteInterpreter(Interpreter):
 
     def handlePrintCommand(self, stmt, tgt):
         # print("  PrintCommand")
-        value = self._eval_in_frame(stmt.expr, self.prg)
-        print("[%s] : %s" % (stmt.expr, value))
+        # value = self._eval_in_frame(stmt.expr, self.prg)
+        value = self.get_operand_value(stmt.expr)
+        print("[#######] [%s] : %s" % (stmt.expr, value))
         return tgt
 
     # helper: call a procedure and return its value
@@ -311,11 +473,11 @@ class ConcreteInterpreter(Interpreter):
             raise NameError("Undefined procedure: %s" % proc_name)
         proc = getattr(global_frame, proc_name)
         # print("  Found procedure declaration:", proc)
-        proc, pc = self.ir[proc]
+        proc, pc = self.ir[proc - 1]
         caller_addr = self.pc + 1
         # print("  should return to ", caller_addr)
 
-        self.pc = pc
+        self.pc = pc + 1
         # create new frame and bind parameters
         new_frame = ProgramContext()
         for i, pname in enumerate(proc.params):
@@ -328,18 +490,19 @@ class ConcreteInterpreter(Interpreter):
         prev_prg = self.prg
         self.prg = new_frame
         self.prg.caller_addr = caller_addr
-        start_pc = self.pc
-        end_pc = self.pc + len(proc.body) if proc.body else self.pc + 1
-        try:
-            while self.pc >= start_pc and self.pc < end_pc:
-                # print("CURR PC : ", self.pc)
-                self.interpret()
+        # start_pc = self.pc
+        # end_pc = self.pc + len(proc.body) if proc.body else self.pc + 1
+        # try:
+        #     while self.pc >= start_pc and self.pc < end_pc:
+        #         # print("CURR PC : ", self.pc)
+        #         self.interpret()
 
         # has encountered a return
-        finally:
-            self.call_stack.pop()
-            self.prg = prev_prg
-        return self.ret_val
+        # finally:
+        #     self.call_stack.pop()
+        #     self.prg = prev_prg
+        # return self.ret_val
+        return None
 
     def handleProcedureCall(self, stmt, tgt):
         print(" Procedure Call: %s" % stmt.name)
@@ -350,17 +513,48 @@ class ConcreteInterpreter(Interpreter):
         self._call_procedure_and_get_return(stmt.name, arg_vals)
         return tgt
 
+    def handleCallN(self, stmt, tgt, pc):
+        proc_name = stmt.proc_name
+        arg_count = stmt.arg_count
+        
+        entry = self.funs[stmt.proc_name]["entry"]
+        # print("  Found procedure declaration:", entry)
+
+        proc, pc = self.ir[entry - 1]
+        caller_addr = self.pc + 1
+
+        self.stack.push(caller_addr) # push pc
+        self.stack.push(self.rbp) # push bp
+        self.rbp = self.stack.sp # update bp to new frame
+        self.stack.sp += len(self.funs[proc_name]["offsets"])
+        entry += 1
+        # print("  should return to ", caller_addr)
+        # print("jump to procedure body at pc ", entry)
+        return entry
+
     def handleAssertCommand(self, stmt, tgt):
         # evaluate the assert condition in current frame; if false, raise AssertionError
-        cond_val = self._eval_in_frame(stmt.cond, self.call_stack[-1])
-        if not bool(cond_val):
+        # cond_val = self._eval_in_frame(stmt.cond, self.call_stack[-1])
+        print(type(stmt.cond))
+        cond_val = self.get_operand_value(stmt.cond)
+        print(f"  Assert condition {stmt.cond} evaluated to: {cond_val}")
+        if not bool(cond_val) and cond_val is not None:
             raise AssertionError("Assertion failed: %s" % (stmt.cond,))
         return tgt
 
     def handleReturnCommand(self, stmt, tgt):
-        if stmt.expr is None:
-            self.ret_val = None
-        else:
-            self.ret_val = self._eval_in_frame(stmt.expr, self.prg)
-            
-        return self.prg.caller_addr
+        self.stack.sp = self.rbp # reset stack pointer to current frame base
+        old_rbp = self.stack.pop() # restore caller's base pointer
+        caller_addr = self.stack.pop() # get caller's return address
+        self.ret_val = self.get_operand_value(stmt.expr)
+        self.rbp = old_rbp
+        print("new rbp : ", self.rbp, "new caller_addr : ", caller_addr, "ret_val : ", self.ret_val, "stack sp : ", self.stack.sp)
+        return caller_addr
+
+    def handleParamCommand(self, stmt, tgt):
+        # push the value of the parameter onto the argument stack
+        param = stmt.param
+        param_val = self.get_operand_value(param)
+        self.stack.push(param_val)
+        print("  Pushed param value onto arg stack: ", param_val)
+        return tgt

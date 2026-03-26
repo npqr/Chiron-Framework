@@ -25,3 +25,7 @@ to fib(:n) [
 assert(fib(5) == 5)
 assert(fib(6) == 8)
 assert(fact(fib(5)) == 120)
+assert(fact(fib(6)) == 40320)
+
+assert(fib(10) != 42) // sanity check
+assert(2 != 3) // sanity check

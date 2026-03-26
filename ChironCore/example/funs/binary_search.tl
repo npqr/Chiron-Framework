@@ -57,6 +57,11 @@ assert(:idx == 3)
 :idx = bs(0, :n - 1, 47)
 assert(:idx == 6)
 
+/* not supported yet
+:x = (:idx == 6)
+print(:x)
+*/
+
 /*
 :idx = bs(0, :n - 1, 19)
 assert(:idx == -1)

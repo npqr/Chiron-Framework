@@ -304,3 +304,46 @@ class Label(Instruction):
 
     def __str__(self):
         return "label " + self.name
+    
+class ParamCommand(Instruction):
+    def __init__(self, param):
+        self.param = param
+
+    def __str__(self):
+        return "param " + str(self.param)
+    
+class CallN(Instruction):
+    def __init__(self, proc_name, arg_count):
+        self.proc_name = proc_name
+        self.arg_count = arg_count
+
+    def __str__(self):
+        return f"call @{self.proc_name}, {self.arg_count}"
+    
+class RetVal(Expression):
+    def __init__(self):
+        pass
+
+    def __str__(self):
+        return "ret_val"
+    
+class StackAlloc(Instruction):
+    def __init__(self, size):
+        self.size = size
+
+    def __str__(self):
+        return f"stack_alloc {self.size}"
+class StackDealloc(Instruction):
+    def __init__(self, size):
+        self.size = size
+
+    def __str__(self):
+        return f"stack_dealloc {self.size}"
+    
+# class ReadFromArgStack(Instruction):
+#     def __init__(self, idx):
+#         self.idx = idx
+
+#     def __str__(self):
+#         return f"read_arg_stack {self.idx}"
+    
