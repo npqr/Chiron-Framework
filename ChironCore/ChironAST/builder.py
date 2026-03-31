@@ -232,3 +232,7 @@ class astGenPass(tlangVisitor):
             for expr in ctx.procedureCall().argList().expression():
                 args.append(self.visit(expr))
         return ChironAST.ProcedureCallExpr(name, args)
+
+    def visitGlobalDecl(self, ctx: tlangParser.GlobalDeclContext):
+        varname = ctx.VAR().getText()
+        return [(ChironAST.GlobalDecl(varname), 1)]

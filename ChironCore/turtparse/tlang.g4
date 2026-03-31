@@ -9,7 +9,8 @@ instruction_list : (instruction)*
 strict_ilist : (instruction)+
              ;
 
-instruction : assignment
+instruction : globalDecl  
+		| assignment
 	    | conditional
 	    | loop
 	    | moveCommand
@@ -22,6 +23,8 @@ instruction : assignment
         | returnCommand
         | printCommand    
 	    ;
+
+globalDecl : 'global' VAR ;
 
 assertCommand : 'assert' (condition | expression) ;
 

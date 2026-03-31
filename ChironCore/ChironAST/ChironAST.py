@@ -265,19 +265,6 @@ class ProcedureDeclaration(Instruction):
         header = f"to {self.name}({params_s})"
 
         return header
-        # if not self.body:
-        #     body_s = "    pass"
-        # else:
-        #     lines = []
-        #     for idx, item in enumerate(self.body):
-        #         if isinstance(item, tuple) and len(item) == 2:
-        #             stmt, tgt = item
-        #             lines.append("\t[SL" + str(idx) + "] " + str(stmt) + " [[" + str(tgt) + "]]")
-        #         else:
-        #             lines.append("\t[SL" + str(idx) + "] " + str(item))
-        #     body_s = "\n".join(lines)
-        # return header + "\n" + body_s + "\n\tend"
-
 
 class ProcedureCall(Instruction):
     def __init__(self, name, args):
@@ -339,3 +326,10 @@ class StackDealloc(Instruction):
 
     def __str__(self):
         return f"stack_dealloc {self.size}"
+
+class GlobalDecl(Instruction):
+    def __init__(self, varname):
+        self.varname = varname
+
+    def __str__(self):
+        return f"global {self.varname}"

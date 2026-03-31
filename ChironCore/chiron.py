@@ -215,7 +215,7 @@ if __name__ == "__main__":
         ir = astgen.visitStart(parseTree)
         ir = irHandler.flattenIR(ir)
         ir = irHandler.flatToTAC(ir)
-        irHandler.checkTAC(ir)
+        ir = irHandler.checkTAC(ir)
 
     # Set the IR of the program.
     irHandler.setIR(ir)

@@ -11,6 +11,14 @@
 :n = 7
 
 to valueAt(:i) [
+    global :arr0
+    global :arr1
+    global :arr2
+    global :arr3
+    global :arr4
+    global :arr5
+    global :arr6
+    
     if :i == 0 [ return :arr0 ]
     if :i == 1 [ return :arr1 ]
     if :i == 2 [ return :arr2 ]

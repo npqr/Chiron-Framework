@@ -84,7 +84,7 @@ class Stack:
     def push(self, val):
         self.stack[self.sp] = val
         self.sp += 1
-        print(self.stack)
+        # print(self.stack)
 
         if self.sp > len(self.stack):
             raise OverflowError("Stack overflow")
@@ -95,6 +95,7 @@ class Stack:
         return self.stack[self.sp]
 
 MAX_STACK_SIZE = 10000
+MAX_DATA_SIZE = 10000
 
 # TODO: move to a different file
 class Regs:
@@ -125,8 +126,9 @@ class ConcreteInterpreter(Interpreter):
             self.chironhook = Chironhooks.ConcreteChironHooks()
 
         self.stack = Stack(MAX_STACK_SIZE)
+        self.data = [None] * MAX_DATA_SIZE
         self.regs = Regs(self.stack)
-        self.sym_tab = irHandler.funs
+        self.sym_tab = irHandler.sym_tab
 
     def interpret(self):
         print("Program counter : ", self.regs.pc)
@@ -168,6 +170,8 @@ class ConcreteInterpreter(Interpreter):
             ntgt = self.handleStackAlloc(stmt, tgt)
         elif isinstance(stmt, ChironAST.StackDealloc):
             ntgt = self.handleStackDealloc(stmt, tgt)
+        elif isinstance(stmt, ChironAST.GlobalDecl):
+            ntgt = self.handleGlobalDecl(stmt, tgt)
         else:
             raise NotImplementedError("Unknown instruction: %s, %s."%(type(stmt), stmt))
 
@@ -208,34 +212,39 @@ class ConcreteInterpreter(Interpreter):
         if isinstance(node, ChironAST.Var):
             varname = node.varname.replace(":", "")
             if self.regs.bp < 2:
-                if hasattr(self.prg, varname):
-                    return getattr(self.prg, varname)
-                raise NameError("Undefined variable: %s" % varname)
-            
+                offset = self.sym_tab["_globals"]["offsets"][varname]
+                if self.data[offset] is None:
+                    raise NameError(f"Undefined variable: {varname} (global frame)")
+                return self.data[offset]
+
+            if varname.startswith("__g_"):
+                varname = varname[4:]  # Remove "__g_" prefix
+                offset = self.sym_tab["_globals"]["offsets"][varname]
+                if self.data[offset] is None:
+                    raise NameError(f"Undefined variable: {varname} (global frame)")
+                return self.data[offset]
+
             ret_pc = self.stack.stack[self.regs.bp - 2]
 
             if ret_pc <= 0 or ret_pc > len(self.ir):
-                if hasattr(self.prg, varname):
-                    return getattr(self.prg, varname)
-                raise NameError("Undefined variable: %s (invalid return address)" % varname)
+                raise NameError(f"Undefined variable: {varname} (invalid return address)")
 
             instr = self.ir[ret_pc - 1][0]
             proc_name = getattr(instr, "proc_name", None)
             offsets = self.sym_tab[proc_name].get("offsets", {})
             if varname not in offsets:
-                # variable not a local of the procedure -> check global frame
-                if hasattr(self.prg, varname):
-                    return getattr(self.prg, varname)
-                raise NameError("Undefined variable: %s" % varname)
+                raise NameError(f"Undefined variable: {varname}")
 
             offset = offsets[varname]
             idx = self.regs.bp + offset
             # ensure index is within the current allocated stack region
             if idx < 0 or idx >= len(self.stack.stack):
-                raise IndexError("STACK ACCESS VIOLATION: RBP=%s, offset=%s, idx=%s, sp=%s" % (self.regs.bp, offset, idx, self.stack.sp))
+                raise IndexError(f"STACK ACCESS VIOLATION: RBP={self.regs.bp}, offset={offset}, idx={idx}, sp={self.stack.sp}")
 
+            if self.stack.stack[idx] is None:
+                raise NameError(f"Undefined variable: {varname} (stack frame, offset {offset})")
             return self.stack.stack[idx]
-        
+
         # return value
         if isinstance(node, ChironAST.RetVal):
             return self.regs.ret_val
@@ -272,14 +281,14 @@ class ConcreteInterpreter(Interpreter):
             if isinstance(node, ChironAST.NEQ):   return left != right
             if isinstance(node, ChironAST.AND):   return bool(left) and bool(right)
             if isinstance(node, ChironAST.OR):    return bool(left) or bool(right)
-            
+
             raise RuntimeError("Unsupported binary operator type: %s" % type(node))
 
         if not node:
             return None
 
         raise RuntimeError("Unsupported operand/expression type: %s" % type(node))
-            
+
     def handleAssignment(self, stmt, tgt):
         """
         Processes x = <expr>. In 3AC, <expr> is guaranteed to be 
@@ -294,12 +303,20 @@ class ConcreteInterpreter(Interpreter):
         final_val = self.get_operand_value(rhs)
 
         if(self.regs.bp == 0):
-            setattr(self.prg, lhs_name, final_val)
+            offset = self.sym_tab["_globals"]["offsets"][lhs_name]
+            self.data[offset] = final_val
+            # setattr(self.prg, lhs_name, final_val)
             # print(f"  Assigned variable {lhs_name} = {final_val} in global frame {self.prg.__dict__}")
         else:
+            if lhs_name.startswith("__g_"):
+                varname = lhs_name[4:]  # Remove "__g_" prefix
+                offset = self.sym_tab["_globals"]["offsets"][varname]
+                self.data[offset] = final_val
+                return tgt
+
             ret_pc = self.stack.stack[self.regs.bp - 2]
             proc_name = self.ir[ret_pc - 1][0].proc_name
-            # print(self.sym_tab[proc_name])                
+            # print(self.sym_tab[proc_name])
             offset = self.sym_tab[proc_name]["offsets"][lhs_name]
             self.stack.stack[self.regs.bp + offset] = final_val
 
@@ -339,11 +356,11 @@ class ConcreteInterpreter(Interpreter):
     def handleStackAlloc(self, stmt, tgt):
         self.regs.sp += stmt.size
         return tgt
-    
+
     def handleStackDealloc(self, stmt, tgt):
         self.regs.sp -= stmt.size
         return tgt
-   
+
     def handlePrintCommand(self, stmt, tgt):
         value = self.get_operand_value(stmt.expr)
         print("[#######] [%s] : %s" % (stmt.expr, value))
@@ -382,4 +399,7 @@ class ConcreteInterpreter(Interpreter):
         param_val = self.get_operand_value(param)
         self.stack.push(param_val)
         # print("  Pushed param value onto arg stack: ", param_val)
+        return tgt
+
+    def handleGlobalDecl(self, stmt, tgt):
         return tgt

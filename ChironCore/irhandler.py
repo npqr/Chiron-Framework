@@ -1,3 +1,4 @@
+from ast import expr
 import antlr4
 import pickle
 
@@ -32,7 +33,7 @@ class IRHandler:
         self.ir = ir
         # control flow graph
         self.cfg = cfg
-        self.funs = {}
+        self.sym_tab = {"_globals": {"offsets": {}}}
 
     def setIR(self, ir):
         self.ir = ir
@@ -164,6 +165,12 @@ class IRHandler:
 
                 print(ntgt, pc, head_idx)
                 flatList[head_idx] = (item, ntgt + len(flatList) - 1)
+            elif isinstance(item, ChironAST.AssignmentCommand):
+                lhs_name = item.lvar.varname.replace(":", "")
+                if self.sym_tab["_globals"]["offsets"].get(lhs_name) is None:
+                    self.sym_tab["_globals"]["offsets"][lhs_name] = len(self.sym_tab["_globals"]["offsets"])
+                flatList.append((item, pc + ntgt))
+                pc += 1
             else:
                 flatList.append((item, pc + ntgt))
                 pc += 1
@@ -235,7 +242,7 @@ class IRHandler:
                 instrs.append(ChironAST.AssignmentCommand(ChironAST.Var(temp), new_op_node))
 
                 return ChironAST.Var(temp), instrs
-            
+
             # TODO: flatten condition as well
 
             raise SyntaxError(f"Unsupported expression type for reduction: {expr}")
@@ -247,7 +254,9 @@ class IRHandler:
             expanded_instrs = []
 
             if isinstance(instr, ChironAST.ProcedureDeclaration):
-                self.funs[instr.name] = {"entry" : len(three_ac_list)}
+                if instr.name in self.sym_tab:
+                    raise SyntaxError(f"Duplicate procedure declaration found: {instr.name}")
+                self.sym_tab[instr.name] = {"entry" : len(three_ac_list)}
                 expanded_instrs.append(instr)
 
             elif isinstance(instr, ChironAST.AssignmentCommand):
@@ -323,77 +332,101 @@ class IRHandler:
         return three_ac_list
 
     def checkTAC(self, three_ac_list):
-        def get_used_vars(expr):
-            used = set()
-            if isinstance(expr, ChironAST.Var):
-                used.add(expr.varname)
-
-            # Check binary operands
-            if hasattr(expr, 'lexpr'): used.update(get_used_vars(expr.lexpr))
-            if hasattr(expr, 'rexpr'): used.update(get_used_vars(expr.rexpr))
-
-            # Check unary operands/general expressions
-            if hasattr(expr, 'expr') and expr.expr is not None:
-                used.update(get_used_vars(expr.expr))
-
-            # Special case for ProcedureCallExpr arguments
-            if isinstance(expr, ChironAST.ProcedureCallExpr):
-                for arg in expr.args:
-                    used.update(get_used_vars(arg))
-
-            return used
-
         def get_all_locals(proc):
-            all_locals = dict()  
-            local_cnt = 0
+            all_offsets = dict()
+            global_vars = set()
+            local_vars = set()
 
+            # params: negative offsets
             arg_count = len(proc.params)
             for i, param in enumerate(proc.params):
-                all_locals[param.replace(":", "")] = -(arg_count - i) - 2  # Negative indices for parameters
+                p = param.replace(":", "")
+                all_offsets[p] = -(arg_count - i) - 2  # Negative indices for parameters
 
-            entry_pc = self.funs[proc.name]["entry"]
+            entry_pc = self.sym_tab[proc.name]["entry"]
             final_pc = three_ac_list[entry_pc][1]
 
             print(f"Procedure '{proc.name}' parameters: {proc.params}")
             print(f"start PC: {entry_pc}, final PC: {final_pc}\n")
 
+            def l2g(expr):
+                if isinstance(expr, ChironAST.Var):
+                    expr_name = expr.varname.replace(":", "")
+                    if expr_name in global_vars:
+                        print(f"Using global variable for reference to '{expr_name}' in procedure '{proc.name}'")
+                        return ChironAST.Var("__g_" + expr_name)
+                return expr
+            
             for pc in range(entry_pc + 1, final_pc):
                 stmt = three_ac_list[pc][0]
-                used_in_this_stmt = set()
+
+                if isinstance(stmt, ChironAST.GlobalDecl):
+                    varname = stmt.varname.replace(":", "")
+                    global_vars.add(varname)
+                    print(f"Found global variable declaration: '{varname}' in procedure '{proc.name}'")
+                    continue
 
                 if isinstance(stmt, ChironAST.AssignmentCommand):
-                    used_in_this_stmt = get_used_vars(stmt.rexpr)
+                    lhs_name = stmt.lvar.varname.replace(":", "")
+                    if lhs_name in global_vars:
+                        three_ac_list[pc] = (ChironAST.AssignmentCommand(ChironAST.Var("__g_" + lhs_name), stmt.rexpr), three_ac_list[pc][1])
+                        print("Using global variable for assignment to '{lhs_name}' in procedure '{proc.name}'")
+                    elif lhs_name not in local_vars and (":" + lhs_name) not in proc.params:
+                        local_vars.add(lhs_name)
+                        print(f"Found assignment to '{lhs_name}' (will consider for local allocation)")
 
-                elif isinstance(stmt, ChironAST.ParamCommand):
-                    used_in_this_stmt = get_used_vars(stmt.param)
+                    rhs_expr = stmt.rexpr
+                        
+                    if isinstance(rhs_expr, (ChironAST.BinArithOp, ChironAST.BinCondOp, ChironAST.AND, ChironAST.OR)):
+                        r1 = rhs_expr.lexpr
+                        r2 = rhs_expr.rexpr
+                        three_ac_list[pc] = (ChironAST.AssignmentCommand(stmt.lvar, type(rhs_expr)(l2g(r1), l2g(r2))), three_ac_list[pc][1])
 
-                elif isinstance(stmt, ChironAST.ConditionCommand):
-                    used_in_this_stmt = get_used_vars(stmt.cond)
+                    if isinstance(rhs_expr, (ChironAST.UnaryArithOp, ChironAST.NOT)):
+                        r = rhs_expr.expr
+                        three_ac_list[pc] = (ChironAST.AssignmentCommand(stmt.lvar, type(rhs_expr)(l2g(r))), three_ac_list[pc][1])
 
-                elif isinstance(stmt, ChironAST.MoveCommand):
-                    used_in_this_stmt = get_used_vars(stmt.expr)
+                if isinstance(stmt, ChironAST.ReturnCommand):
+                    three_ac_list[pc] = (ChironAST.ReturnCommand(l2g(stmt.expr) if stmt.expr is not None else None), three_ac_list[pc][1])
 
-                elif isinstance(stmt, ChironAST.PrintCommand):
-                    used_in_this_stmt = get_used_vars(stmt.expr)
 
-                for var in used_in_this_stmt:
-                    var = var.replace(":", "")
-                    if var not in all_locals and var not in proc.params:
-                        raise NameError(f"Usage Error: Variable '{var}' used before definition or is undefined.")
 
-                if isinstance(stmt, ChironAST.AssignmentCommand):
-                    if isinstance(stmt.lvar, ChironAST.Var):
-                        lhs_name = stmt.lvar.varname.replace(":", "")
-                        print(f"Processing assignment to variable '{lhs_name}' in procedure '{proc.name}'")
-                        if lhs_name not in proc.params and lhs_name not in all_locals:
-                            all_locals[lhs_name] = local_cnt
-                            local_cnt += 1
+            local_cnt = 0
+            for var in local_vars:
+                all_offsets[var] = local_cnt
+                print(f"Assigning local offset {local_cnt} to variable '{var}' in procedure '{proc.name}'")
+                local_cnt += 1
 
-            return all_locals
+            return all_offsets
 
-        for instr, _ in three_ac_list:
+        idx = 0
+        while idx < len(three_ac_list):
+            instr, tgt = three_ac_list[idx]
             if isinstance(instr, ChironAST.ProcedureDeclaration):
-                self.funs[instr.name]["offsets"] = get_all_locals(instr)
+                self.sym_tab[instr.name]["offsets"] = get_all_locals(instr)
                 print(f"Offsets for procedure '{instr.name}':")
-                for var, offset in self.funs[instr.name]["offsets"].items():
+                for var, offset in self.sym_tab[instr.name]["offsets"].items():
                     print(f"  {var}: {offset}")
+                idx = tgt 
+            elif isinstance(instr, ChironAST.AssignmentCommand):
+                lhs_name = instr.lvar.varname.replace(":", "")
+                if lhs_name.startswith("__t"):
+                    if self.sym_tab["_globals"]["offsets"].get(lhs_name) is None:
+                        self.sym_tab["_globals"]["offsets"][lhs_name] = len(self.sym_tab["_globals"]["offsets"])
+                idx += 1
+            else:
+                idx += 1
+
+
+        # print("\n========== Updated 3AC IR ==========\n")
+        # for idx, (instr, tgt) in enumerate(three_ac_list):
+        #     # print(f"type: {type(instr)}")
+        #     print(f"[L{idx}]".rjust(5), f"\t{instr} [{tgt}]")
+
+        print("\n========== 3-Address Code IR ==========\n")
+        for idx, (instr, tgt) in enumerate(three_ac_list):
+            print(f"type: {type(instr)}")
+            if isinstance(instr, ChironAST.AssignmentCommand):
+                print(f"LHS: {instr.lvar}, RHS: {instr.rexpr}")
+            print(f"[L{idx}]".rjust(5), f"\t{instr} [{tgt}]")
+        return three_ac_list
