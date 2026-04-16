@@ -1,6 +1,7 @@
 from ast import expr
 import antlr4
 import pickle
+import linecache
 
 from turtparse.parseError import *
 from turtparse.tlangParser import tlangParser
@@ -124,30 +125,47 @@ class IRHandler:
         # We only allow non-jump/non-conditional statement removal as of now.
         stmtList[pos] = (ChironAST.NoOpCommand(), 1)
 
-    def pretty_print(self, irList):
-        """
-            We pass a IR list and print it here.
-        """
-        print("\n========== Chiron IR ==========\n")
-        print("The first label before the opcode name represents the IR index or label \non the control flow graph for that node.\n")
-        print("The number after the opcode name represents the jump offset \nrelative to that statement.\n")
+    def pretty_print(self, irList, filename=None):
+            """
+                We pass a IR list and print it here, grouped by original source lines.
+            """
+            print("\n========== Chiron IR (Source Grouped) ==========\n")
+            print("The first label before the opcode name represents the IR index or label \non the control flow graph for that node.\n")
+            print("The number after the opcode name represents the jump offset \nrelative to that statement.\n")
 
-        for idx, item in enumerate(irList):
-            if isinstance(item[0], ChironAST.ProcedureDeclaration):
-                params = item[0].params.__str__()[1:-1]
-                # params = params.replace(":", "")
-                params = params.replace("'", "")
-                print(f"[L{idx}]".rjust(5), f"func @{item[0].name}({params}):")
-            elif not (isinstance(item[0], ChironAST.ConditionCommand)):
-                if idx < self.fpc:
-                    print(f"[L{idx}]".rjust(5), f"\t{item[0]}")
+            last_lineno = None
+
+            for idx, item in enumerate(irList):
+                instr, tgt = item[0], item[1]
+                curr_lineno = instr.lineno
+
+                # If the source line has changed, print the new source line header
+                if filename and curr_lineno is not None and curr_lineno != last_lineno:
+                    source_text = linecache.getline(filename, curr_lineno).strip()
+                    filename_only = filename.split("/")[-1]
+                    if source_text:
+                        print(f"\n({filename_only}:{curr_lineno}) \t\t {source_text}")
+                    last_lineno = curr_lineno
+
+                # Original formatting for Procedure Declarations
+                if isinstance(instr, ChironAST.ProcedureDeclaration):
+                    params = instr.params.__str__()[1:-1]
+                    params = params.replace("'", "")
+                    print(f"[L{idx}]".rjust(5), f"func @{instr.name}({params}):")
+                
+                # Original formatting for Condition Commands
+                elif isinstance(instr, ChironAST.ConditionCommand):
+                    if idx < self.fpc:
+                        print(f"[L{idx}]".rjust(5), f"\t{instr} [{tgt}]")
+                    else:
+                        print(f"[L{idx}]".rjust(5), f"{instr} [{tgt}]")
+                
+                # Original formatting for all other instructions
                 else:
-                    print(f"[L{idx}]".rjust(5), f"{item[0]}")
-            else:
-                if idx < self.fpc:
-                    print(f"[L{idx}]".rjust(5), f"\t{item[0]} [{item[1]}]")
-                else:
-                    print(f"[L{idx}]".rjust(5), f"{item[0]} [{item[1]}]")
+                    if idx < self.fpc:
+                        print(f"[L{idx}]".rjust(5), f"\t{instr}")
+                    else:
+                        print(f"[L{idx}]".rjust(5), f"{instr}")
 
     def flattenIR(self, irList):
         flatList = []
@@ -215,16 +233,28 @@ class IRHandler:
 
                 # Push parameters in order
                 for r_arg in reduced_args:
-                    instrs.append(ChironAST.ParamCommand(r_arg))
+                    param_cmd = ChironAST.ParamCommand(r_arg)
+                    param_cmd.lineno = expr.lineno
+                    instrs.append(param_cmd)
 
                 temp_result = get_next_temp()
-                instrs.append(ChironAST.CallN(expr.name, len(reduced_args)))
-                instrs.append(ChironAST.StackDealloc(len(reduced_args)))
-                instrs.append(ChironAST.AssignmentCommand(
-                    ChironAST.Var(temp_result), 
-                    ChironAST.RetVal() 
-                ))
-                return ChironAST.Var(temp_result), instrs
+
+                call_cmd = ChironAST.CallN(expr.name, len(reduced_args))
+                call_cmd.lineno = expr.lineno
+                instrs.append(call_cmd)
+
+                dealloc_cmd = ChironAST.StackDealloc(len(reduced_args))
+                dealloc_cmd.lineno = expr.lineno
+                instrs.append(dealloc_cmd)
+
+                assign_cmd = ChironAST.AssignmentCommand(ChironAST.Var(temp_result), ChironAST.RetVal())
+                assign_cmd.lineno = expr.lineno
+                instrs.append(assign_cmd)
+
+                temp_var = ChironAST.Var(temp_result)
+                temp_var.lineno = expr.lineno
+
+                return temp_var, instrs
 
             if isinstance(expr, (ChironAST.BinArithOp, ChironAST.BinCondOp, ChironAST.AND, ChironAST.OR)):
                 left_op, left_instrs = reduce_expression(expr.lexpr)
@@ -236,9 +266,13 @@ class IRHandler:
                 temp = get_next_temp()
                 # Create a simplified version of the node with leaf operands
                 new_op_node = type(expr)(left_op, right_op)
-                instrs.append(ChironAST.AssignmentCommand(ChironAST.Var(temp), new_op_node))
+                temp_assign = ChironAST.AssignmentCommand(ChironAST.Var(temp), new_op_node)
+                temp_assign.lineno = expr.lineno
+                instrs.append(temp_assign)
 
-                return ChironAST.Var(temp), instrs
+                temp_var = ChironAST.Var(temp)
+                temp_var.lineno = expr.lineno
+                return temp_var, instrs
 
             # 4. UNARY OPERATIONS (NOT, UMinus)
             if isinstance(expr, (ChironAST.UnaryArithOp, ChironAST.NOT)):
@@ -247,9 +281,13 @@ class IRHandler:
 
                 temp = get_next_temp()
                 new_op_node = type(expr)(operand)
-                instrs.append(ChironAST.AssignmentCommand(ChironAST.Var(temp), new_op_node))
+                temp_assign = ChironAST.AssignmentCommand(ChironAST.Var(temp), new_op_node)
+                temp_assign.lineno = expr.lineno
+                instrs.append(temp_assign)
 
-                return ChironAST.Var(temp), instrs
+                temp_var = ChironAST.Var(temp)
+                temp_var.lineno = expr.lineno
+                return temp_var, instrs
 
             # TODO: flatten condition as well
 
@@ -285,13 +323,21 @@ class IRHandler:
                 reduced_args = []
                 for arg in instr.args:
                     arg_var, arg_steps = reduce_expression(arg)
+                    # Manually attach line numbers to steps from expressions
+                    for s in arg_steps:
+                        if hasattr(s, "lineno") and s.lineno is None:
+                            s.lineno = instr.lineno
                     three_ac_list.extend([[s, -1] for s in arg_steps])
                     reduced_args.append(arg_var)
 
                 for r_arg in reduced_args:
-                    three_ac_list.append([ChironAST.ParamCommand(r_arg), -1])
+                    p_cmd = ChironAST.ParamCommand(r_arg)
+                    p_cmd.lineno = instr.lineno
+                    three_ac_list.append([p_cmd, -1])
 
-                three_ac_list.append([ChironAST.CallN(instr.name, len(reduced_args)), target])
+                call_cmd = ChironAST.CallN(instr.name, len(reduced_args))
+                call_cmd.lineno = instr.lineno
+                three_ac_list.append([call_cmd, target])
             # TODO: add other command types
             elif isinstance(instr, ChironAST.ReturnCommand):
                 if instr.expr is not None:
@@ -314,6 +360,10 @@ class IRHandler:
                 expanded_instrs.append(instr)
 
             for sub_instr in expanded_instrs:
+                # Ensure the expanded sub-instruction carries the line number of the original instruction
+                if not hasattr(sub_instr, "lineno") or sub_instr.lineno is None:
+                    sub_instr.lineno = instr.lineno
+
                 is_last = sub_instr == expanded_instrs[-1]
                 is_proc_dec = isinstance(instr, ChironAST.ProcedureDeclaration) and sub_instr == expanded_instrs[0]
                 target = original_target if (is_last or is_proc_dec) else -1
@@ -339,6 +389,7 @@ class IRHandler:
         #     print(f"[L{idx}]".rjust(5), f"\t{instr} [{tgt}]")
         return three_ac_list
 
+
     def checkTAC(self, three_ac_list):
         def get_all_locals(proc):
             all_offsets = dict()
@@ -362,12 +413,14 @@ class IRHandler:
                     expr_name = expr.varname.replace(":", "")
                     if expr_name in global_vars:
                         # print(f"Using global variable for reference to '{expr_name}' in procedure '{proc.name}'")
-                        return ChironAST.Var("__g_" + expr_name)
+                        new_var = ChironAST.Var("__g_" + expr_name)
+                        new_var.lineno = expr.lineno
+                        return new_var
                 return expr
-            
+
             for pc in range(entry_pc + 1, final_pc):
                 stmt = three_ac_list[pc][0]
-
+                original_lineno = stmt.lineno
                 if isinstance(stmt, ChironAST.GlobalDecl):
                     varname = stmt.varname.replace(":", "")
                     global_vars.add(varname)
@@ -377,27 +430,41 @@ class IRHandler:
                 if isinstance(stmt, ChironAST.AssignmentCommand):
                     lhs_name = stmt.lvar.varname.replace(":", "")
                     if lhs_name in global_vars:
-                        three_ac_list[pc] = (ChironAST.AssignmentCommand(ChironAST.Var("__g_" + lhs_name), stmt.rexpr), three_ac_list[pc][1])
+                        new_instr = ChironAST.AssignmentCommand(ChironAST.Var("__g_" + lhs_name), stmt.rexpr)
+                        new_instr.lineno = original_lineno 
+                        three_ac_list[pc] = (new_instr, three_ac_list[pc][1])
                         # print("Using global variable for assignment to '{lhs_name}' in procedure '{proc.name}'")
                     elif lhs_name not in local_vars and (":" + lhs_name) not in proc.params:
                         local_vars.add(lhs_name)
                         # print(f"Found assignment to '{lhs_name}' (will consider for local allocation)")
 
+                    # Re-fetching stmt in case it was replaced above
+                    stmt = three_ac_list[pc][0]
                     rhs_expr = stmt.rexpr
                         
                     if isinstance(rhs_expr, (ChironAST.BinArithOp, ChironAST.BinCondOp, ChironAST.AND, ChironAST.OR)):
                         r1 = rhs_expr.lexpr
                         r2 = rhs_expr.rexpr
-                        three_ac_list[pc] = (ChironAST.AssignmentCommand(stmt.lvar, type(rhs_expr)(l2g(r1), l2g(r2))), three_ac_list[pc][1])
+                        new_op = type(rhs_expr)(l2g(r1), l2g(r2))
+                        new_op.lineno = rhs_expr.lineno
+
+                        new_instr = ChironAST.AssignmentCommand(stmt.lvar, new_op)
+                        new_instr.lineno = original_lineno  
+                        three_ac_list[pc] = (new_instr, three_ac_list[pc][1])
 
                     if isinstance(rhs_expr, (ChironAST.UnaryArithOp, ChironAST.NOT)):
                         r = rhs_expr.expr
-                        three_ac_list[pc] = (ChironAST.AssignmentCommand(stmt.lvar, type(rhs_expr)(l2g(r))), three_ac_list[pc][1])
+                        new_op = type(rhs_expr)(l2g(r))
+                        new_op.lineno = rhs_expr.lineno
+
+                        new_instr = ChironAST.AssignmentCommand(stmt.lvar, new_op)
+                        new_instr.lineno = original_lineno  
+                        three_ac_list[pc] = (new_instr, three_ac_list[pc][1])
 
                 if isinstance(stmt, ChironAST.ReturnCommand):
-                    three_ac_list[pc] = (ChironAST.ReturnCommand(l2g(stmt.expr) if stmt.expr is not None else None), three_ac_list[pc][1])
-
-
+                    new_instr = ChironAST.ReturnCommand(l2g(stmt.expr) if stmt.expr is not None else None)
+                    new_instr.lineno = original_lineno  
+                    three_ac_list[pc] = (new_instr, three_ac_list[pc][1])
 
             local_cnt = 0
             for var in local_vars:
@@ -425,7 +492,6 @@ class IRHandler:
                 idx += 1
             else:
                 idx += 1
-
 
         # print("\n========== Updated 3AC IR ==========\n")
         # for idx, (instr, tgt) in enumerate(three_ac_list):

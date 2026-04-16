@@ -3,6 +3,8 @@
 # Abstract syntax tree for ChironLang
 
 class AST(object):
+    lineno = None # line number in source code for error and debugging purposes
+    
     pass
 
 

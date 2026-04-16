@@ -242,7 +242,7 @@ if __name__ == "__main__":
         # set the cfg of the program.
 
     if args.ir:
-        irHandler.pretty_print(irHandler.ir)
+        irHandler.pretty_print(irHandler.ir, filename=args.progfl)
 
     if args.abstractInterpretation:
         AISub.analyzeUsingAI(irHandler)
@@ -251,10 +251,10 @@ if __name__ == "__main__":
     if args.dataFlowAnalysis:
         irOpt = DFASub.optimizeUsingDFA(irHandler)
         print("== Optimized IR ==")
-        irHandler.pretty_print(irHandler.ir)
+        irHandler.pretty_print(irHandler.ir, filename=args.progfl)
 
     if args.dump_ir:
-        irHandler.pretty_print(irHandler.ir)
+        irHandler.pretty_print(irHandler.ir, filename=args.progfl)
         irHandler.dumpIR("optimized.kw", irHandler.ir)
 
     # debugger mode: run a textual debugger wrapper around the ConcreteInterpreter

@@ -1,28 +1,44 @@
 #!/usr/bin/env python3
-"""
-Simple textual gdb-like debugger for Chiron ConcreteInterpreter.
-
-Commands:
-  c, continue        - resume execution until next breakpoint or program end
-  s, step            - execute one instruction
-  n, next            - alias for step (single instruction)
-  r, regs [name]     - show all registers or a single register value
-  b <n|label>        - set breakpoint at instruction index n or label name
-  cl <n|label>       - clear breakpoint
-  p <var>            - print variable value (accepts names with or without leading ':', temps like __t0, or __g_x globals)
-  l, list [n]        - list IR around current pc (default 10 lines)
-  bt                 - backtrace (call stack)
-  h, help            - show help
-  q, quit            - quit debugger (terminates program)
-"""
 from ChironAST import ChironAST
+import linecache
 
 class Debugger:
+    """
+    Simple textual gdb-like debugger for Chiron ConcreteInterpreter.
+
+    Commands:
+    c, continue        - resume execution until next breakpoint or program end
+    s, step            - execute one instruction
+    n, next            - alias for step (single instruction)
+    r, regs [name]     - show all registers or a single register value
+    b <L##|label|line> - set breakpoint at IR index L##, label name, or source line
+    cl <L##|label|line>- clear breakpoint
+    p <var>            - print variable value (accepts names with or without leading ':', temps like __t0, or __g_x globals)
+    l, list [n]        - list IR around current pc (default 10 lines)
+    bt                 - backtrace (call stack)
+    h, help            - show help
+    q, quit            - quit debugger (terminates program)
+    """
+
     def __init__(self, interpreter):
         # interpreter: instance of ConcreteInterpreter
         self.inptr = interpreter
         self.breakpoints = set()
         self.step_mode = True
+        self.source_file = self.inptr.args.progfl
+
+        self.line_to_ir = {}
+        for i, (instr, _) in enumerate(self.inptr.ir):
+            # l = getattr(instr, "lineno", None)
+            l = instr.lineno
+            # We only store the FIRST IR index encountered for each source line
+            if not l:
+                raise ValueError(f"Instruction at IR index {i} is missing line number info: {instr}")
+
+            if l not in self.line_to_ir:
+                self.line_to_ir[l] = i
+
+        self.sorted_lines = sorted(self.line_to_ir.keys())
 
     def _current_pc(self):
         return self.inptr.regs.pc
@@ -30,56 +46,83 @@ class Debugger:
     def _instr_str(self, idx, instr, tgt):
         mark = "->" if idx == self._current_pc() else "  "
         bp_mark = "B" if idx in self.breakpoints else " "
-        return f"{mark}{bp_mark} [L{idx}] {instr} [{tgt}]"
+        
+        # 1. Format the Line Number
+        lineno = getattr(instr, 'lineno', None)
+        line_num_str = f"Line {lineno:<3}" if lineno else "        "
+        
+        # 2. Fetch the actual source text from the file
+        source_text = ""
+        source_text = linecache.getline(self.source_file, lineno).strip()
+                
+        display_source = (source_text[:27] + "...") if len(source_text) > 30 else source_text
+        
+        return f"{mark}{bp_mark} [L{idx:3}] {line_num_str} | {instr} [{tgt}] \t\t// {display_source:<30} "
+
+    def print_current_instr(self):
+        """Prints the instruction at the current Program Counter."""
+        pc = self._current_pc()
+        if pc < len(self.inptr.ir):
+            instr, tgt = self.inptr.ir[pc]
+            print(self._instr_str(pc, instr, tgt))
 
     def list_ins(self, window=10):
         pc = self._current_pc()
-        start = max(0, pc - window//2)
+        start = max(0, pc - window // 2)
         end = min(len(self.inptr.ir), start + window)
         for i in range(start, end):
             instr, tgt = self.inptr.ir[i]
             print(self._instr_str(i, instr, tgt))
 
+    def _resolve_target(self, arg):
+        """Helper to resolve L## (IR index), digits (Source Line), or string (Label) to IR index."""
+        # 1. Check for L## format (IR Index)
+        if arg.upper().startswith("L") and arg[1:].isdigit():
+            idx = int(arg[1:])
+            if 0 <= idx < len(self.inptr.ir):
+                return idx
+            print(f"Invalid IR index: L{idx}")
+            return None
+
+        # 2. Check for numeric digits (Source Line Number)
+        if arg.isdigit():
+            line_val = int(arg)
+            for i, (instr, _) in enumerate(self.inptr.ir):
+                if hasattr(instr, "lineno") and instr.lineno == line_val:
+                    return i
+            print(f"Source line {line_val} not found.")
+            return None
+
+        # 3. Check for Label name
+        for i, (instr, _) in enumerate(self.inptr.ir):
+            if isinstance(instr, ChironAST.Label) and instr.name == arg:
+                return i
+
+        return None
+
     def set_breakpoint(self, arg):
         if not arg:
-            print("Usage: b <index|label>")
+            print("Usage: b <L##|label|line>")
             return
-        # numeric?
-        try:
-            idx = int(arg)
-            if idx < 0 or idx >= len(self.inptr.ir):
-                print("Invalid index")
-                return
+
+        idx = self._resolve_target(arg)
+        if idx is not None:
             self.breakpoints.add(idx)
-            print(f"Breakpoint set at index {idx}")
-            return
-        except ValueError:
-            pass
-        # label name: find Label instruction
-        for i, (instr, _) in enumerate(self.inptr.ir):
-            if isinstance(instr, ChironAST.Label) and instr.name == arg:
-                self.breakpoints.add(i)
-                print(f"Breakpoint set at label '{arg}' -> index {i}")
-                return
-        print("Label not found")
+            print(f"Breakpoint set at L{idx}")
+        else:
+            print(f"Target '{arg}' not found.")
 
     def clear_breakpoint(self, arg):
-        try:
-            idx = int(arg)
-            if idx in self.breakpoints:
-                self.breakpoints.remove(idx)
-                print(f"Cleared breakpoint {idx}")
-                return
-        except Exception:
-            pass
-        # try label
-        for i, (instr, _) in enumerate(self.inptr.ir):
-            if isinstance(instr, ChironAST.Label) and instr.name == arg:
-                if i in self.breakpoints:
-                    self.breakpoints.remove(i)
-                    print(f"Cleared breakpoint at label '{arg}' (index {i})")
-                    return
-        print("No matching breakpoint found")
+        if not arg:
+            print("Usage: cl <L##|label|line>")
+            return
+
+        idx = self._resolve_target(arg)
+        if idx is not None and idx in self.breakpoints:
+            self.breakpoints.remove(idx)
+            print(f"Cleared breakpoint at L{idx}")
+        else:
+            print(f"No matching breakpoint found for '{arg}'")
 
     def print_var(self, name):
         if not name:
@@ -120,8 +163,8 @@ class Debugger:
             return
         for i, (caller_pc, old_bp) in enumerate(frames):
             func_instr = None
-            if caller_pc and caller_pc-1 < len(self.inptr.ir):
-                func_instr = self.inptr.ir[caller_pc-1][0]
+            if caller_pc and caller_pc - 1 < len(self.inptr.ir):
+                func_instr = self.inptr.ir[caller_pc - 1][0]
             name = getattr(func_instr, "proc_name", getattr(func_instr, "name", "<unknown>"))
             print(f"#{i} pc={caller_pc} proc={name}")
 
@@ -163,7 +206,7 @@ class Debugger:
             # Also stop if we hit a user breakpoint (pause before executing it)
             if pc in self.breakpoints:
                 print(f"Hit breakpoint at L{pc}")
-                self.list_ins(10)
+                # self.list_ins(10)
                 break
         return False
 
@@ -222,14 +265,13 @@ class Debugger:
                 # run until next breakpoint or end
                 finished = False
                 while True:
-                    if self._current_pc() in self.breakpoints and not finished:
-                        # at a breakpoint, pause before executing it
-                        break
                     finished = self._run_one()
                     if finished:
                         print("Program ended.")
                         return
-                    if self._current_pc() in self.breakpoints:
+                    if self._current_pc() in self.breakpoints:                        
+                        print(f"Hit breakpoint at L{self._current_pc()}")
+                        self.print_current_instr() 
                         break
                 # now loop to REPL
             # Enter REPL for commands
@@ -246,6 +288,15 @@ class Debugger:
             if cmd in ("c", "continue"):
                 self.step_mode = False
                 # continue main loop will resume execution
+                finished = self._run_one()
+                if finished:
+                    print("Program ended.")
+                    return
+                # If the NEXT instruction is also a breakpoint, stop immediately
+                if self._current_pc() in self.breakpoints:
+                    print(f"Hit breakpoint at [L{self._current_pc()}]")
+                    self.print_current_instr()
+                    self.step_mode = True
                 continue
             elif cmd in ("s", "step"):
                 self.step_mode = True
@@ -253,6 +304,7 @@ class Debugger:
                 if finished:
                     print("Program ended.")
                     return
+                self.print_current_instr()  
                 continue
             elif cmd in ("n", "next"):
                 # 'next' steps over calls
@@ -260,16 +312,17 @@ class Debugger:
                 finished = self.next_step()
                 if finished:
                     return
+                self.print_current_instr()  
                 continue
             elif cmd in ("b", "break"):
                 if not args:
-                    print("Usage: b <index|label>")
+                    print("Usage: b <L##|label|line>")
                 else:
                     self.set_breakpoint(args[0])
                 continue
             elif cmd == "cl":
                 if not args:
-                    print("Usage: cl <index|label>")
+                    print("Usage: cl <L##|label|line>")
                 else:
                     self.clear_breakpoint(args[0])
                 continue
