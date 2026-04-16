@@ -82,15 +82,17 @@ class Stack:
         self.sp = 0
         self.stack = [None] * sz
     def push(self, val):
+        if(self.sp < 0 or self.sp >= len(self.stack)):
+            raise OverflowError("Stack overflow")
+        
         self.stack[self.sp] = val
         self.sp += 1
         # print(self.stack)
 
-        if self.sp > len(self.stack):
-            raise OverflowError("Stack overflow")
     def pop(self):
         if self.sp <= 0:
             raise OverflowError("Stack underflow")
+        
         self.sp -= 1
         return self.stack[self.sp]
 
@@ -131,12 +133,12 @@ class ConcreteInterpreter(Interpreter):
         self.sym_tab = irHandler.sym_tab
 
     def interpret(self):
-        print("Program counter : ", self.regs.pc)
+        # print("Program counter : ", self.regs.pc)
         stmt, tgt = self.ir[self.regs.pc]
-        print("CURR PC : ", self.regs.pc, stmt, stmt.__class__.__name__, tgt)
+        # print("CURR PC : ", self.regs.pc, stmt, stmt.__class__.__name__, tgt)
         # print("STACK : ", self.stack.stack)
-        print("RBP : ", self.regs.bp)
-        print("RET_VAL : ", self.regs.ret_val)
+        # print("RBP : ", self.regs.bp)
+        # print("RET_VAL : ", self.regs.ret_val)
 
         self.sanityCheck(self.ir[self.regs.pc])
 
@@ -199,7 +201,7 @@ class ConcreteInterpreter(Interpreter):
 
     # TODO: handle turtle graphics states too
     def get_operand_value(self, node):
-        print("  Evaluating operand/expression: ", node, type(node))
+        # print("  Evaluating operand/expression: ", node, type(node))
         # evaluate literals
         if isinstance(node, ChironAST.Num):
             return node.val
@@ -267,7 +269,7 @@ class ConcreteInterpreter(Interpreter):
             left = self.get_operand_value(node.lexpr)
             right = self.get_operand_value(node.rexpr)
 
-            print(f"  Evaluating binary operation: {node.__class__.__name__} with left={left} and right={right}")
+            # print(f"  Evaluating binary operation: {node.__class__.__name__} with left={left} and right={right}")
 
             if isinstance(node, ChironAST.Sum):   return left + right
             if isinstance(node, ChironAST.Diff):  return left - right
@@ -299,7 +301,7 @@ class ConcreteInterpreter(Interpreter):
         final_val = None
         offset = None
 
-        print("RHS of assignment is: ", rhs, type(rhs))
+        # print("RHS of assignment is: ", rhs, type(rhs))
         final_val = self.get_operand_value(rhs)
 
         if(self.regs.bp == 0):
@@ -324,27 +326,27 @@ class ConcreteInterpreter(Interpreter):
         return tgt
 
     def handleCondition(self, stmt, tgt, pc):
-        print("  Branch Instruction")
+        # print("  Branch Instruction")
         self.cond_eval = self.get_operand_value(stmt.cond)
         return pc + 1 if self.cond_eval else tgt
 
     def handleMove(self, stmt, tgt):
-        print("  MoveCommand")
+        # print("  MoveCommand")
         val = self.get_operand_value(stmt.expr)
         exec("self.trtl.%s(%s)" % (stmt.direction, val))
         return tgt
 
     def handleNoOpCommand(self, stmt, tgt):
-        print("  No-Op Command")
+        # print("  No-Op Command")
         return tgt
 
     def handlePen(self, stmt, tgt):
-        print("  PenCommand")
+        # print("  PenCommand")
         exec("self.trtl.%s()"%(stmt.status))
         return tgt
 
     def handleGotoCommand(self, stmt, tgt):
-        print(" GotoCommand")
+        # print(" GotoCommand")
         xcor = self.get_operand_value(stmt.xcor)
         ycor = self.get_operand_value(stmt.ycor)
         self.trtl.goto(xcor, ycor)    
@@ -363,7 +365,7 @@ class ConcreteInterpreter(Interpreter):
 
     def handlePrintCommand(self, stmt, tgt):
         value = self.get_operand_value(stmt.expr)
-        print("[#######] [%s] : %s" % (stmt.expr, value))
+        # print("[#######] [%s] : %s" % (stmt.expr, value))
         return tgt
 
     def handleCallN(self, stmt, tgt, pc):

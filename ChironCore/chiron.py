@@ -196,8 +196,18 @@ if __name__ == "__main__":
         type=bool,
     )
 
+    # debugger flag: run program under textual debugger
+    cmdparser.add_argument(
+        "-dbg",
+        "--debug",
+        action="store_true",
+        help="Run program under a textual gdb-like debugger.",
+    )
+
     args = cmdparser.parse_args()
     ir = ""
+
+    print(args)
 
     if not (type(args.params) is dict):
         raise ValueError("Wrong type for command line arguement '-d' or '--params'.")
@@ -247,6 +257,17 @@ if __name__ == "__main__":
         irHandler.pretty_print(irHandler.ir)
         irHandler.dumpIR("optimized.kw", irHandler.ir)
 
+    # debugger mode: run a textual debugger wrapper around the ConcreteInterpreter
+    if args.debug:
+        from debugger import Debugger  # local module in same package (ChironCore/debugger.py)
+        inptr = ConcreteInterpreter(irHandler, args)
+        # initialize program context (set input variables, hooks, turtle state, etc.)
+        inptr.initProgramContext(args.params if args.params is not None else {})
+        dbg = Debugger(inptr)
+        dbg.run()  # blocks until program end or user quits
+        # After debugger returns, exit main
+        exit(0)
+
     if args.symbolicExecution:
         print("symbolicExecution")
         if not args.params:
@@ -287,7 +308,11 @@ if __name__ == "__main__":
         terminated = False
         inptr.initProgramContext(args.params)
         while True:
-            terminated = inptr.interpret()
+            try:
+                terminated = inptr.interpret()
+            except Exception as e:
+                print("Throwing ", e, repr(e))
+                exit(0)
             if terminated:
                 break
         print("Program Ended.")

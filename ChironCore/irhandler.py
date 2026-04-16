@@ -34,6 +34,7 @@ class IRHandler:
         # control flow graph
         self.cfg = cfg
         self.sym_tab = {"_globals": {"offsets": {}}}
+        self.fpc = -1
 
     def setIR(self, ir):
         self.ir = ir
@@ -130,6 +131,7 @@ class IRHandler:
         print("\n========== Chiron IR ==========\n")
         print("The first label before the opcode name represents the IR index or label \non the control flow graph for that node.\n")
         print("The number after the opcode name represents the jump offset \nrelative to that statement.\n")
+
         for idx, item in enumerate(irList):
             if isinstance(item[0], ChironAST.ProcedureDeclaration):
                 params = item[0].params.__str__()[1:-1]
@@ -137,9 +139,15 @@ class IRHandler:
                 params = params.replace("'", "")
                 print(f"[L{idx}]".rjust(5), f"func @{item[0].name}({params}):")
             elif not (isinstance(item[0], ChironAST.ConditionCommand)):
-                print(f"[L{idx}]".rjust(5), f"\t{item[0]}")
+                if idx < self.fpc:
+                    print(f"[L{idx}]".rjust(5), f"\t{item[0]}")
+                else:
+                    print(f"[L{idx}]".rjust(5), f"{item[0]}")
             else:
-                print(f"[L{idx}]".rjust(5), f"\t{item[0]} [{item[1]}]")
+                if idx < self.fpc:
+                    print(f"[L{idx}]".rjust(5), f"\t{item[0]} [{item[1]}]")
+                else:
+                    print(f"[L{idx}]".rjust(5), f"{item[0]} [{item[1]}]")
 
     def flattenIR(self, irList):
         flatList = []
@@ -163,7 +171,7 @@ class IRHandler:
                     flatList.append((stmt, pc + tgt))
                     pc += 1
 
-                print(ntgt, pc, head_idx)
+                # print(ntgt, pc, head_idx)
                 flatList[head_idx] = (item, ntgt + len(flatList) - 1)
             elif isinstance(item, ChironAST.AssignmentCommand):
                 lhs_name = item.lvar.varname.replace(":", "")
@@ -175,9 +183,9 @@ class IRHandler:
                 flatList.append((item, pc + ntgt))
                 pc += 1
 
-        print("\n========== Flattened IR ==========\n")
-        for idx, item in enumerate(flatList):
-            print(f"[L{idx}]".rjust(5), item[0], f"[{item[1]}]")
+        # print("\n========== Flattened IR ==========\n")
+        # for idx, item in enumerate(flatList):
+        #     print(f"[L{idx}]".rjust(5), item[0], f"[{item[1]}]")
         return flatList
 
     def flatToTAC(self, flatList):
@@ -326,9 +334,9 @@ class IRHandler:
                 # This was a boundary instruction, jump to the mapped new_pc
                 three_ac_list[i][1] = pc_map[original_target]
 
-        print("\n========== 3-Address Code IR ==========\n")
-        for idx, (instr, tgt) in enumerate(three_ac_list):
-            print(f"[L{idx}]".rjust(5), f"\t{instr} [{tgt}]")
+        # print("\n========== 3-Address Code IR ==========\n")
+        # for idx, (instr, tgt) in enumerate(three_ac_list):
+        #     print(f"[L{idx}]".rjust(5), f"\t{instr} [{tgt}]")
         return three_ac_list
 
     def checkTAC(self, three_ac_list):
@@ -346,14 +354,14 @@ class IRHandler:
             entry_pc = self.sym_tab[proc.name]["entry"]
             final_pc = three_ac_list[entry_pc][1]
 
-            print(f"Procedure '{proc.name}' parameters: {proc.params}")
-            print(f"start PC: {entry_pc}, final PC: {final_pc}\n")
+            # print(f"Procedure '{proc.name}' parameters: {proc.params}")
+            # print(f"start PC: {entry_pc}, final PC: {final_pc}\n")
 
             def l2g(expr):
                 if isinstance(expr, ChironAST.Var):
                     expr_name = expr.varname.replace(":", "")
                     if expr_name in global_vars:
-                        print(f"Using global variable for reference to '{expr_name}' in procedure '{proc.name}'")
+                        # print(f"Using global variable for reference to '{expr_name}' in procedure '{proc.name}'")
                         return ChironAST.Var("__g_" + expr_name)
                 return expr
             
@@ -363,17 +371,17 @@ class IRHandler:
                 if isinstance(stmt, ChironAST.GlobalDecl):
                     varname = stmt.varname.replace(":", "")
                     global_vars.add(varname)
-                    print(f"Found global variable declaration: '{varname}' in procedure '{proc.name}'")
+                    # print(f"Found global variable declaration: '{varname}' in procedure '{proc.name}'")
                     continue
 
                 if isinstance(stmt, ChironAST.AssignmentCommand):
                     lhs_name = stmt.lvar.varname.replace(":", "")
                     if lhs_name in global_vars:
                         three_ac_list[pc] = (ChironAST.AssignmentCommand(ChironAST.Var("__g_" + lhs_name), stmt.rexpr), three_ac_list[pc][1])
-                        print("Using global variable for assignment to '{lhs_name}' in procedure '{proc.name}'")
+                        # print("Using global variable for assignment to '{lhs_name}' in procedure '{proc.name}'")
                     elif lhs_name not in local_vars and (":" + lhs_name) not in proc.params:
                         local_vars.add(lhs_name)
-                        print(f"Found assignment to '{lhs_name}' (will consider for local allocation)")
+                        # print(f"Found assignment to '{lhs_name}' (will consider for local allocation)")
 
                     rhs_expr = stmt.rexpr
                         
@@ -404,10 +412,11 @@ class IRHandler:
             instr, tgt = three_ac_list[idx]
             if isinstance(instr, ChironAST.ProcedureDeclaration):
                 self.sym_tab[instr.name]["offsets"] = get_all_locals(instr)
-                print(f"Offsets for procedure '{instr.name}':")
-                for var, offset in self.sym_tab[instr.name]["offsets"].items():
-                    print(f"  {var}: {offset}")
+                # print(f"Offsets for procedure '{instr.name}':")
+                # for var, offset in self.sym_tab[instr.name]["offsets"].items():
+                #     print(f"  {var}: {offset}")
                 idx = tgt 
+                self.fpc = tgt
             elif isinstance(instr, ChironAST.AssignmentCommand):
                 lhs_name = instr.lvar.varname.replace(":", "")
                 if lhs_name.startswith("__t"):
@@ -423,10 +432,10 @@ class IRHandler:
         #     # print(f"type: {type(instr)}")
         #     print(f"[L{idx}]".rjust(5), f"\t{instr} [{tgt}]")
 
-        print("\n========== 3-Address Code IR ==========\n")
-        for idx, (instr, tgt) in enumerate(three_ac_list):
-            print(f"type: {type(instr)}")
-            if isinstance(instr, ChironAST.AssignmentCommand):
-                print(f"LHS: {instr.lvar}, RHS: {instr.rexpr}")
-            print(f"[L{idx}]".rjust(5), f"\t{instr} [{tgt}]")
+        # print("\n========== 3-Address Code IR ==========\n")
+        # for idx, (instr, tgt) in enumerate(three_ac_list):
+        #     print(f"type: {type(instr)}")
+        #     if isinstance(instr, ChironAST.AssignmentCommand):
+        #         print(f"LHS: {instr.lvar}, RHS: {instr.rexpr}")
+        #     print(f"[L{idx}]".rjust(5), f"\t{instr} [{tgt}]")
         return three_ac_list
