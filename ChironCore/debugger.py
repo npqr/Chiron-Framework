@@ -100,8 +100,12 @@ class Debugger:
 
         # 3. Check for Label name
         for i, (instr, _) in enumerate(self.inptr.ir):
+            # Check for Labels
             if isinstance(instr, ChironAST.Label) and instr.name == arg:
                 return i
+            # Check for Function/Procedure Names
+            if isinstance(instr, ChironAST.ProcedureDeclaration) and instr.name == arg:
+                return i + 1
 
         return None
 
