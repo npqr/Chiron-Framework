@@ -26,6 +26,7 @@ class Debugger:
         self.breakpoints = set()
         self.step_mode = True
         self.source_file = self.inptr.args.progfl
+        self.selected_frame_index = None
 
         self.line_to_ir = {}
         for i, (instr, _) in enumerate(self.inptr.ir):
@@ -46,17 +47,17 @@ class Debugger:
     def _instr_str(self, idx, instr, tgt):
         mark = "->" if idx == self._current_pc() else "  "
         bp_mark = "B" if idx in self.breakpoints else " "
-        
+
         # 1. Format the Line Number
         lineno = getattr(instr, 'lineno', None)
         line_num_str = f"Line {lineno:<3}" if lineno else "        "
-        
+
         # 2. Fetch the actual source text from the file
         source_text = ""
         source_text = linecache.getline(self.source_file, lineno).strip()
-                
+
         display_source = (source_text[:27] + "...") if len(source_text) > 30 else source_text
-        
+
         return f"{mark}{bp_mark} [L{idx:3}] {line_num_str} | {instr} [{tgt}] \t\t// {display_source:<30} "
 
     def print_current_instr(self):
@@ -87,9 +88,13 @@ class Debugger:
         # 2. Check for numeric digits (Source Line Number)
         if arg.isdigit():
             line_val = int(arg)
-            for i, (instr, _) in enumerate(self.inptr.ir):
-                if hasattr(instr, "lineno") and instr.lineno == line_val:
-                    return i
+            # exact match first
+            if line_val in self.line_to_ir:
+                return self.line_to_ir[line_val]
+            # pick the next available source line greater than the requested one
+            for l in self.sorted_lines:
+                if l > line_val:
+                    return self.line_to_ir[l]
             print(f"Source line {line_val} not found.")
             return None
 
@@ -124,49 +129,68 @@ class Debugger:
         else:
             print(f"No matching breakpoint found for '{arg}'")
 
+    def _get_proc_name(self, pc):
+        """Finds the procedure name containing the given PC."""
+        for i in range(pc, -1, -1):
+            instr = self.inptr.ir[i][0]
+            if isinstance(instr, ChironAST.ProcedureDeclaration):
+                return instr.name
+        return "main"
+
+    def _get_frames(self):
+        """
+        Reconstructs the stack. 
+        Returns list of (pc, bp, proc_name). Frame 0 = current.
+        """
+        # Frame 0: Current registers
+        frames = [(self.inptr.regs.pc, self.inptr.regs.bp, self._get_proc_name(self.inptr.regs.pc))]
+
+        # Walk back through the stack using saved BPs
+        curr_bp = self.inptr.regs.bp
+        while curr_bp and curr_bp > 1:
+            try:
+                # Assuming stack layout: [..., caller_pc, old_bp] <- BP points to old_bp
+                caller_pc = self.inptr.stack.stack[curr_bp - 2]
+                old_bp = self.inptr.stack.stack[curr_bp - 1]
+
+                # Name of the function that was called
+                name = self._get_proc_name(caller_pc - 1)
+                frames.append((caller_pc, old_bp, name))
+                curr_bp = old_bp
+            except:
+                break
+        return frames
+
     def print_var(self, name):
-        if not name:
-            print("Usage: p <varname>")
-            return
+        if not name: return
         vn = name.strip()
-        # heuristics: temps and special names usually have no ':'
-        if vn.startswith(":") or vn.startswith("__") or vn.startswith("__g_"):
-            varnode = ChironAST.Var(vn)
-        else:
-            # prefer without colon for temps, otherwise try with colon for variables
-            if vn.startswith("__"):
-                varnode = ChironAST.Var(vn)
-            else:
-                # try global/local both: try with colon first
-                varnode = ChironAST.Var(":" + vn)
+
+        frames = self._get_frames()
+        # Use selected frame or default to Frame 0
+        target_idx = self.selected_frame_index if self.selected_frame_index is not None else 0
+
+        if target_idx >= len(frames):
+            print(f"Frame {target_idx} invalid. Defaulting to Frame 0.")
+            target_idx = 0
+
+        target_bp = frames[target_idx][1]
+
+        # Construct Var node
+        varnode = ChironAST.Var(vn if (vn.startswith(":") or vn.startswith("__")) else ":" + vn)
+
         try:
-            val = self.inptr.get_operand_value(varnode)
-            print(f"{vn} = {val}")
+            # CALLING UPDATED get_operand_value
+            val = self.inptr.get_operand_value(varnode, override_bp=target_bp)
+            print(f"{vn} (frame #{target_idx}) = {val}")
         except Exception as e:
-            print(f"Error evaluating '{vn}': {e}")
+            print(f"Error: {e}")
 
     def backtrace(self):
-        # reconstruct call chain from stack using saved caller pcs and saved rbp
-        frames = []
-        bp = self.inptr.regs.bp
-        while bp and bp > 1:
-            # saved caller pc at bp-2, saved old bp at bp-1 (push order: pc, bp)
-            try:
-                caller_pc = self.inptr.stack.stack[bp - 2]
-                old_bp = self.inptr.stack.stack[bp - 1]
-            except Exception:
-                break
-            frames.append((caller_pc, old_bp))
-            bp = old_bp
-        if not frames:
-            print("No frames (at top-level).")
-            return
-        for i, (caller_pc, old_bp) in enumerate(frames):
-            func_instr = None
-            if caller_pc and caller_pc - 1 < len(self.inptr.ir):
-                func_instr = self.inptr.ir[caller_pc - 1][0]
-            name = getattr(func_instr, "proc_name", getattr(func_instr, "name", "<unknown>"))
-            print(f"#{i} pc={caller_pc} proc={name}")
+        frames = self._get_frames()
+        print("\nStack Backtrace:")
+        for i, (pc, bp, name) in enumerate(frames):
+            prefix = "->" if i == (self.selected_frame_index or 0) else "  "
+            print(f"{prefix} #{i} {name} (pc={pc}, bp={bp})")
 
     def _run_one(self):
         try:
@@ -217,7 +241,14 @@ class Debugger:
         regs = self.inptr.regs
         # Try to get a mapping of attributes
         try:
-            items = vars(regs)
+            raw = vars(regs)
+            items = {}
+            for k, v in raw.items():
+                if k.startswith("_"):
+                    continue
+                if callable(v):
+                    continue
+                items[k] = v
         except TypeError:
             # fallback: collect public non-callable attributes
             items = {}
@@ -285,8 +316,21 @@ class Debugger:
             parts = cmdline.split()
             cmd = parts[0]
             args = parts[1:] if len(parts) > 1 else []
+
+            if cmd in ("f", "frame"):
+                if args and args[0].isdigit():
+                    idx = int(args[0])
+                    if 0 <= idx < len(self._get_frames()):
+                        self.selected_frame_index = idx
+                        f = self._get_frames()[idx]
+                        print(f"Inspecting Frame #{idx}: {f[2]} (bp={f[1]})")
+                    else:
+                        print("Invalid frame index.")
+                else:
+                    print("Usage: f <frame_index>")
             if cmd in ("c", "continue"):
                 self.step_mode = False
+                self.selected_frame_index = None  # RESET FRAME ON CONTINUE
                 # continue main loop will resume execution
                 finished = self._run_one()
                 if finished:

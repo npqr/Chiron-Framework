@@ -200,8 +200,7 @@ class ConcreteInterpreter(Interpreter):
             exec("setattr(self.prg,\"%s\",%s)" % (var, val))
 
     # TODO: handle turtle graphics states too
-    def get_operand_value(self, node):
-        # print("  Evaluating operand/expression: ", node, type(node))
+    def get_operand_value(self, node, override_bp=None):
         # evaluate literals
         if isinstance(node, ChironAST.Num):
             return node.val
@@ -213,7 +212,11 @@ class ConcreteInterpreter(Interpreter):
         # variables (global frame or stack frame)
         if isinstance(node, ChironAST.Var):
             varname = node.varname.replace(":", "")
-            if self.regs.bp < 2:
+            
+            # Determine which Base Pointer to use for resolution
+            base_ptr = override_bp if override_bp is not None else self.regs.bp
+
+            if base_ptr < 2:
                 offset = self.sym_tab["_globals"]["offsets"][varname]
                 if self.data[offset] is None:
                     raise NameError(f"Undefined variable: {varname} (global frame)")
@@ -226,7 +229,7 @@ class ConcreteInterpreter(Interpreter):
                     raise NameError(f"Undefined variable: {varname} (global frame)")
                 return self.data[offset]
 
-            ret_pc = self.stack.stack[self.regs.bp - 2]
+            ret_pc = self.stack.stack[base_ptr - 2]
 
             if ret_pc <= 0 or ret_pc > len(self.ir):
                 raise NameError(f"Undefined variable: {varname} (invalid return address)")
@@ -238,13 +241,14 @@ class ConcreteInterpreter(Interpreter):
                 raise NameError(f"Undefined variable: {varname}")
 
             offset = offsets[varname]
-            idx = self.regs.bp + offset
-            # ensure index is within the current allocated stack region
+            idx = base_ptr + offset
+            
             if idx < 0 or idx >= len(self.stack.stack):
-                raise IndexError(f"STACK ACCESS VIOLATION: RBP={self.regs.bp}, offset={offset}, idx={idx}, sp={self.stack.sp}")
+                raise IndexError(f"STACK ACCESS VIOLATION: RBP={base_ptr}, idx={idx}")
 
             if self.stack.stack[idx] is None:
                 raise NameError(f"Undefined variable: {varname} (stack frame, offset {offset})")
+            
             return self.stack.stack[idx]
 
         # return value
